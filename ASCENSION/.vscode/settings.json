@@ -51,6 +51,6 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "M2 Summa Game Net.sln",
+    "dotnet.defaultSolution": "ASCENSION.sln",
     "git.ignoreLimitWarning": true
 }
