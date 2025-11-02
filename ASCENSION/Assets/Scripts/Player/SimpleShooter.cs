@@ -2,6 +2,7 @@
 using UnityEngine;
 using Photon.Pun;
 using System.Collections;
+using TMPro;
 
 [DisallowMultipleComponent]
 public class SimpleShooter_PhotonSafe : MonoBehaviour
@@ -10,6 +11,7 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     public Camera sourceCamera;
     public GameObject bulletPrefab;      // must have collider + Rigidbody (or will be added)
     public Transform spawnPoint;
+    public TextMeshProUGUI ammoText;     // assign your UI Text (optional)
 
     [Header("Bullet Settings")]
     public float bulletSpeed = 40f;
@@ -18,13 +20,24 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     public bool ignoreOwnerCollision = true;
     public float ignoreCollisionDuration = 0.12f;
 
+    [Header("Ammo / Reload")]
+    public int maxAmmo = 25;             // magazine size
+    [Tooltip("If true, will auto reload when magazine empties")]
+    public bool autoReloadOnEmpty = true;
+    public float reloadTime = 1.5f;      // seconds to reload
+    public KeyCode reloadKey = KeyCode.R;
+
     [Header("Pool (simple, per-client)")]
     public bool usePooling = true;
     public int poolSize = 20;
 
+    // runtime
     float nextFireTime = 0f;
     private GameObject[] pool;
     private Transform poolParent;
+
+    private int currentAmmo;
+    private bool isReloading = false;
 
     // Name for the shared root that stores per-player pools but is NOT parented to player transforms
     const string GLOBAL_POOLS_ROOT_NAME = "___BulletPoolsRoot";
@@ -51,6 +64,9 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
 
         // Do not assume Camera.main is correct on networked clones.
         // We'll try to assign the camera for the local owner in Start.
+
+        // initialize ammo
+        currentAmmo = maxAmmo;
     }
 
     Transform GetOrCreateGlobalPoolsRoot()
@@ -91,6 +107,8 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             // Remote instances - do not use Camera.main for firing origin
             // (we won't do firing on remote)
         }
+
+        UpdateAmmoUI();
     }
 
     void Update()
@@ -100,20 +118,51 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
         if (pv != null && PhotonNetwork.InRoom && !pv.IsMine)
             return;
 
+        // Reload input (manual)
+        if (!isReloading && Input.GetKeyDown(reloadKey) && currentAmmo < maxAmmo)
+        {
+            StartCoroutine(ReloadCoroutine());
+        }
+
         // Input
         if (fireRate <= 0f)
         {
             if (Input.GetButtonDown("Fire1"))
-                Fire();
+                TryFire();
         }
         else
         {
             if (Input.GetButton("Fire1") && Time.time >= nextFireTime)
             {
                 nextFireTime = Time.time + fireRate;
-                Fire();
+                TryFire();
             }
         }
+    }
+
+    void TryFire()
+    {
+        if (isReloading) return;
+        if (currentAmmo <= 0)
+        {
+            if (autoReloadOnEmpty)
+            {
+                StartCoroutine(ReloadCoroutine());
+            }
+            else
+            {
+                // optionally play empty click sound here
+            }
+            return;
+        }
+
+        Fire();
+        currentAmmo--;
+        UpdateAmmoUI();
+
+        // Auto-reload when magazine reaches zero and autoReloadOnEmpty is true
+        if (currentAmmo <= 0 && autoReloadOnEmpty && !isReloading)
+            StartCoroutine(ReloadCoroutine());
     }
 
     GameObject GetBulletFromPoolOrNew(out bool pooled)
@@ -278,5 +327,50 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
         if (bullet == null) yield break;
         foreach (var c in ownerCols)
             if (c != null && bulletCol != null) Physics.IgnoreCollision(bulletCol, c, false);
+    }
+
+    IEnumerator ReloadCoroutine()
+    {
+        if (isReloading) yield break;
+        isReloading = true;
+        // Optionally play reload animation/sound here
+        Debug.Log($"[SimpleShooter] Reloading for {reloadTime} seconds...");
+        UpdateAmmoUI(true);
+        yield return new WaitForSeconds(reloadTime);
+        currentAmmo = maxAmmo;
+        isReloading = false;
+        UpdateAmmoUI();
+        Debug.Log("[SimpleShooter] Reload complete.");
+    }
+
+    void UpdateAmmoUI(bool showReloading = false)
+    {
+        if (ammoText == null) return;
+        if (showReloading)
+        {
+            ammoText.text = $"RELOADING...";
+        }
+        else
+        {
+            ammoText.text = $"{currentAmmo} / {maxAmmo}";
+        }
+    }
+
+    // API helpers
+    public void AddAmmo(int amount)
+    {
+        currentAmmo = Mathf.Clamp(currentAmmo + amount, 0, maxAmmo);
+        UpdateAmmoUI();
+    }
+
+    public void SetAmmo(int amount)
+    {
+        currentAmmo = Mathf.Clamp(amount, 0, maxAmmo);
+        UpdateAmmoUI();
+    }
+
+    public int GetCurrentAmmo()
+    {
+        return currentAmmo;
     }
 }
