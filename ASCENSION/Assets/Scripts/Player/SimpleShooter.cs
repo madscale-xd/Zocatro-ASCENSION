@@ -42,6 +42,13 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     [Tooltip("If true, body hits are ignored for bullets (no body damage).")]
     public bool defaultIgnoreBodyHits = false;
 
+    [Header("Devil / Bullet special metadata")]
+    [Tooltip("Percent of damage dealt healed to the attacker (0.25 = 25%).")]
+    public float defaultLifestealPercent = 0f;
+
+    [Tooltip("If >0, the shooter takes this much self-damage each time they fire a bullet (Devil).")]
+    public int defaultSelfDamagePerShot = 0;
+
     // --------------------------
 
     // runtime
@@ -324,6 +331,18 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
 
         if (bulletComp != null) bulletComp.Launch(bulletLifetime, isPooled);
         else Destroy(bullet, bulletLifetime);
+
+        // --- NEW: Devil self-damage on shot (owner-local) ---
+        if (defaultSelfDamagePerShot > 0)
+        {
+            // Apply self-damage on owner client (this shooter owns their player object)
+            PlayerHealth ph = GetComponentInParent<PlayerHealth>();
+            if (ph != null)
+            {
+                ph.TakeDamage(defaultSelfDamagePerShot, false);
+                Debug.Log($"[SimpleShooter] Devil self-damage applied: {defaultSelfDamagePerShot}");
+            }
+        }
     }
 
     IEnumerator ReenableCollisionsAfter(GameObject bullet, Collider bulletCol, Collider[] ownerCols, float delay)

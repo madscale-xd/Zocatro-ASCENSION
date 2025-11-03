@@ -207,7 +207,28 @@ public class TarotSelection : MonoBehaviour
     public void FoolSelected()       { SelectAndClose(TarotCard.Fool); }
     public void TemperanceSelected(){ SelectAndClose(TarotCard.Temperance); }
     public void LoversSelected()     { SelectAndClose(TarotCard.Lovers); }
-    public void DevilSelected()      { SelectAndClose(TarotCard.Devil); }
+    public void DevilSelected()
+    {
+        ActivateDevilOnLocalShooter();
+        SelectAndClose(TarotCard.Devil);
+    }
+
+    void ActivateDevilOnLocalShooter()
+    {
+        SimpleShooter_PhotonSafe shooter = FindLocalShooter();
+        if (shooter == null)
+        {
+            Debug.LogWarning("[TarotSelection] DevilSelected: no local SimpleShooter_PhotonSafe instance found to apply bonuses.");
+            return;
+        }
+
+        // Devil settings:
+        shooter.defaultOutgoingDamageMultiplier = 2f;   // bullets deal double damage
+        shooter.defaultLifestealPercent = 0.25f;        // 25% lifesteal
+        shooter.defaultSelfDamagePerShot = 15;          // deal 15 self-damage per shot
+
+        Debug.Log("[TarotSelection] Devil applied: +100% outgoing damage, 25% lifesteal, 15 self-damage/shot.");
+    }
     public void SunSelected()        { SelectAndClose(TarotCard.Sun); }
     public void MoonSelected()       { SelectAndClose(TarotCard.Moon); }
     public void StarSelected()       { SelectAndClose(TarotCard.Star); }
