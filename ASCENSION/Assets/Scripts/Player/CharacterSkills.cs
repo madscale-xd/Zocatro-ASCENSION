@@ -73,8 +73,8 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     public float gnawingHoundSpeed = 12f;
     public float gnawingLifetime = 4f;
 
-    public float darkPropulsionSpeed = 25f;
-    public float darkPropulsionDuration = 0.25f;
+    public float darkPropulsionSpeed = 50f;
+    public float darkPropulsionDuration = 0.5f;
 
     public float sporewardDuration = 20f;   // turret lifetime (if you want)
     public float thornveilDuration = 10f;
@@ -348,16 +348,31 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
         {
             Vector3 pos = hit.point + hit.normal * 0.01f;
             Quaternion rot = Quaternion.LookRotation(-hit.normal, Vector3.up); // face away from surface
-            GameObject go = SpawnPrefab(turretPlantPrefab, pos, rot);
-            // parent to hit object to attach to wall
-            if (hit.collider != null && go != null) go.transform.SetParent(hit.collider.transform, true);
-            DestroyIfLocal(go, sporewardDuration);
+
+            // owner actor number to pass to the turret
+            int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
+                ? PhotonNetwork.LocalPlayer.ActorNumber
+                : -1;
+
+            // pass owner and hp to the turret via instantiationData (Photon-friendly)
+            object[] instData = new object[] { ownerActor, 50 }; // HP = 50 for Sporeward
+
+            GameObject go = SpawnPrefab(turretPlantPrefab, pos, rot, instData);
+
+            // if locally instantiated (Photon not present or fallback), initialize turret manually
+            if (go != null && !PhotonNetwork.InRoom)
+            {
+                var st = go.GetComponent<SporewardTurret>();
+                if (st != null)
+                    st.InitializeFromSpawner(ownerActor, this.gameObject, 50); // hp=50
+            }
         }
         else
         {
             Debug.Log($"{characterName}: No valid surface under reticle to place turret.");
         }
     }
+
 
     private void Ability_Ivy_Thornveil()
     {
@@ -375,8 +390,25 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
             pos = center.origin + center.direction * 10f;
             rot = Quaternion.LookRotation(-center.direction, Vector3.up);
         }
-        GameObject go = SpawnPrefab(plantWallPrefab, pos, rot);
-        DestroyIfLocal(go, thornveilDuration);
+
+        int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
+            ? PhotonNetwork.LocalPlayer.ActorNumber
+            : -1;
+
+        // pass owner and hp to the wall via instantiationData (Photon-friendly)
+        object[] instData = new object[] { ownerActor, 300 }; // HP = 300 for Thornveil
+
+        GameObject go = SpawnPrefab(plantWallPrefab, pos, rot, instData);
+
+        // initialize locally if Photon isn't being used
+        if (go != null && !PhotonNetwork.InRoom)
+        {
+            var tw = go.GetComponent<ThornveilWall>();
+            if (tw != null)
+                tw.InitializeFromSpawner(ownerActor, this.gameObject, 300); // hp=300
+        }
+
+        DestroyIfLocal(go, thornveilDuration); // optional life cap (you already have thornveilDuration)
     }
 
     // -------- REGALIA --------

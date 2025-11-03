@@ -49,6 +49,7 @@ MonoBehaviour:
   - RPC_DestroyPowerUp
   - RPC_BroadcastHealth
   - RPC_TakeDamage
+  - RPC_ApplyDamage
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1
