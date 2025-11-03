@@ -3,16 +3,11 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Events;
+using Photon.Pun; // used to find the local player/shooter
 
 /// <summary>
 /// TarotSelection
-/// - Shows/hides a panel containing three tarot-card buttons.
-/// - On ShowPanel the three choices are randomized from the remaining (not-yet-selected) deck.
-/// - Ten public selection methods (JusticeSelected, FoolSelected, ... StrengthSelected) that:
-///     * mark the card as selected (so it won't reappear),
-///     * close the tarot panel,
-///     * invoke OnCardChosen (so you can hook functionality later).
-/// - Keeps track of already-selected cards locally; does NOT auto-reset.
+/// (same as before) — but JusticeSelected activates Justice bonuses immediately on the local shooter.
 /// </summary>
 [DisallowMultipleComponent]
 public class TarotSelection : MonoBehaviour
@@ -57,35 +52,23 @@ public class TarotSelection : MonoBehaviour
 
     void Awake()
     {
-        // Validate inspector assignments
         if (optionButtons == null || optionButtons.Length != 3)
             Debug.LogWarning("TarotSelection: optionButtons should be an array of exactly 3 Buttons.");
 
-        // Prepare the list of all cards
         allCards = (TarotCard[])Enum.GetValues(typeof(TarotCard));
 
-        // Ensure panel starts hidden (you can change this)
         if (tarotPanel != null)
             tarotPanel.SetActive(false);
 
-        // Optional safety: hook default visuals if sprites provided
         ApplyDefaultButtonVisuals();
     }
 
     void Update()
     {
-        // TEMP: Press O to open the tarot selection panel (per request)
         if (Input.GetKeyDown(KeyCode.O))
             ShowPanel();
     }
 
-    #region Public API: show/hide/reset
-
-    /// <summary>
-    /// Show the tarot selection panel and randomize choices.
-    /// Note: does NOT reset chosen cards. If no available cards remain,
-    /// buttons will be disabled and the panel will show empty.
-    /// </summary>
     public void ShowPanel()
     {
         if (tarotPanel == null)
@@ -94,54 +77,33 @@ public class TarotSelection : MonoBehaviour
             return;
         }
 
-        // Randomize assignments now (RandomizeChoices disables buttons if none available)
         RandomizeChoices();
-
-        // Show UI
         tarotPanel.SetActive(true);
     }
 
-    /// <summary>
-    /// Hide the tarot selection panel.
-    /// </summary>
     public void HidePanel()
     {
         if (tarotPanel != null)
             tarotPanel.SetActive(false);
     }
 
-    /// <summary>
-    /// Clear the remembered chosen cards so they can appear again in subsequent randomizations.
-    /// Manual only — no automatic resets.
-    /// </summary>
     public void ResetSelections()
     {
         chosenCards.Clear();
     }
-
-    #endregion
-
-    #region Randomization & assignment
 
     int GetAvailableCount()
     {
         return allCards.Length - chosenCards.Count;
     }
 
-    /// <summary>
-    /// Build a pool of available (not-yet-chosen) cards, pick up to 3 unique random ones, and assign them to the buttons.
-    /// If fewer than 3 remain, only that many buttons will be enabled (others disabled).
-    /// If zero remain, all buttons are disabled (panel shows nothing).
-    /// </summary>
     void RandomizeChoices()
     {
-        // Build available list
         List<TarotCard> available = new List<TarotCard>();
         foreach (var c in allCards)
             if (!chosenCards.Contains(c))
                 available.Add(c);
 
-        // If no available, disable all buttons and clear assignments
         if (available.Count == 0)
         {
             for (int i = 0; i < optionButtons.Length; i++)
@@ -152,14 +114,12 @@ public class TarotSelection : MonoBehaviour
             return;
         }
 
-        // Shuffle available list (Fisher-Yates-ish)
         for (int i = 0; i < available.Count; i++)
         {
             int j = UnityEngine.Random.Range(i, available.Count);
             var tmp = available[i]; available[i] = available[j]; available[j] = tmp;
         }
 
-        // Assign up to optionButtons.Length entries
         for (int i = 0; i < optionButtons.Length; i++)
         {
             if (i < available.Count)
@@ -171,7 +131,6 @@ public class TarotSelection : MonoBehaviour
             }
             else
             {
-                // No card to assign here — disable the button
                 DisableButton(optionButtons[i]);
             }
         }
@@ -180,11 +139,8 @@ public class TarotSelection : MonoBehaviour
     void AssignButtonToTarot(Button btn, TarotCard card)
     {
         if (btn == null) return;
-
-        // Clear previous listeners
         btn.onClick.RemoveAllListeners();
 
-        // Set button image if sprite provided
         var img = btn.GetComponent<Image>();
         if (img != null && tarotSprites != null && (int)card < tarotSprites.Length && tarotSprites[(int)card] != null)
         {
@@ -192,7 +148,6 @@ public class TarotSelection : MonoBehaviour
             img.enabled = true;
         }
 
-        // Map the tarot to its selection method by adding the appropriate listener
         switch (card)
         {
             case TarotCard.Justice: btn.onClick.AddListener(JusticeSelected); break;
@@ -227,24 +182,28 @@ public class TarotSelection : MonoBehaviour
 
     void ApplyDefaultButtonVisuals()
     {
-        // If sprites assigned but buttons empty, try to set them to a default sprite
         if (tarotSprites == null) return;
         for (int i = 0; i < optionButtons.Length && i < tarotSprites.Length; i++)
         {
             if (optionButtons[i] == null) continue;
             var img = optionButtons[i].GetComponent<Image>();
             if (img != null && img.sprite == null)
-                img.sprite = tarotSprites[0]; // fallback
+                img.sprite = tarotSprites[0];
         }
     }
 
-    #endregion
+    #region Selection methods (Justice activation added)
 
-    #region Selection methods (user requested exact names)
-    // Each method: mark chosen card so it won't appear again, hide the panel, invoke event.
-    // They intentionally do not implement card behaviour other than marking & closing.
+    // Justice: We apply the bonuses immediately to the local player's SimpleShooter:
+    // - Half attack speed -> double the fireRate (so fewer shots/sec)
+    // - No body shot damage -> bullets set ignoreBodyHits = true
+    // - 6x headshot multiplier -> bullets set headshotMultiplier = 6
+    public void JusticeSelected()
+    {
+        ActivateJusticeOnLocalShooter();
+        SelectAndClose(TarotCard.Justice);
+    }
 
-    public void JusticeSelected()    { SelectAndClose(TarotCard.Justice); }
     public void FoolSelected()       { SelectAndClose(TarotCard.Fool); }
     public void TemperanceSelected(){ SelectAndClose(TarotCard.Temperance); }
     public void LoversSelected()     { SelectAndClose(TarotCard.Lovers); }
@@ -255,23 +214,67 @@ public class TarotSelection : MonoBehaviour
     public void MagicianSelected()   { SelectAndClose(TarotCard.Magician); }
     public void StrengthSelected()   { SelectAndClose(TarotCard.Strength); }
 
+    void ActivateJusticeOnLocalShooter()
+    {
+        // Try to find the local SimpleShooter_PhotonSafe instance.
+        SimpleShooter_PhotonSafe shooter = FindLocalShooter();
+        if (shooter == null)
+        {
+            Debug.LogWarning("[TarotSelection] JusticeSelected: no local SimpleShooter_PhotonSafe instance found to apply bonuses.");
+            return;
+        }
+
+        // Apply Justice modifications:
+        // Half attack speed -> double the fireRate delay (multiplier=2)
+        shooter.SetFireRateMultiplier(2f);
+
+        // Bullets: ignore body hits, 6x headshot multiplier
+        shooter.defaultIgnoreBodyHits = true;
+        shooter.defaultHeadshotMultiplier = 6f;
+        shooter.defaultOutgoingDamageMultiplier = 1f; // no change to base outgoing damage
+
+        Debug.Log("[TarotSelection] Justice applied: fireRate x2 (attack speed halved), body hits ignored, headshot x6.");
+    }
+
+    /// <summary>
+    /// Finds the SimpleShooter_PhotonSafe instance belonging to the local player (owner).
+    /// Works in Photon rooms (finds the instance with PhotonView.IsMine) and falls back to the first found when offline.
+    /// </summary>
+    SimpleShooter_PhotonSafe FindLocalShooter()
+    {
+        var shooters = GameObject.FindObjectsOfType<SimpleShooter_PhotonSafe>(true);
+        if (shooters == null || shooters.Length == 0) return null;
+
+        // If in Photon room, pick the one whose PhotonView.IsMine or that has no PhotonView (local)
+        if (PhotonNetwork.InRoom)
+        {
+            foreach (var s in shooters)
+            {
+                var pv = s.GetComponentInParent<PhotonView>();
+                if (pv == null) return s; // local non-networked shooter
+                if (pv.IsMine) return s;
+            }
+        }
+        else
+        {
+            // Offline - return the first one
+            return shooters[0];
+        }
+
+        // fallback
+        return shooters[0];
+    }
+
     void SelectAndClose(TarotCard chosen)
     {
-        // Mark chosen (idempotent)
         chosenCards.Add(chosen);
-
-        // Debug log so you can confirm it was marked
         Debug.Log($"TarotSelection: {chosen} chosen and removed from future pools. Remaining available: {GetAvailableCount()}");
-
-        // Close UI first so any listeners won't immediately re-open it
         HidePanel();
-
-        // Invoke event so other systems can react (panel is already closed)
         OnCardChosen?.Invoke(chosen);
     }
     #endregion
 
-    #region Inspector-friendly UnityEvent wrapper for TarotCard
+    #region UnityEvent wrapper
     [Serializable]
     public class UnityEventTarotCard : UnityEvent<TarotCard> { }
     #endregion

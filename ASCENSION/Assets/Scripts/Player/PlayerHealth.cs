@@ -1,3 +1,4 @@
+// PlayerHealth.cs
 using UnityEngine;
 using UnityEngine.Events;
 using TMPro;
@@ -64,10 +65,20 @@ public class PlayerHealth : MonoBehaviourPun
 
     /// <summary>
     /// Apply damage to this player (local call on the owner).
+    /// This is the place to hook incoming-side modifiers or effects (like Lovers linking).
     /// </summary>
     /// <param name="amount">Damage amount (already adjusted for headshot, if any).</param>
     /// <param name="isHeadHit">True when this damage was from the head collider.</param>
     public void TakeDamage(int amount, bool isHeadHit = false)
+    {
+        ApplyDamage(amount, isHeadHit);
+    }
+
+    /// <summary>
+    /// Centralized damage application - good place to add incoming-side modifiers (e.g. Lovers, Devil, etc).
+    /// Currently simply subtracts HP, clamps, and invokes events.
+    /// </summary>
+    public void ApplyDamage(int amount, bool isHeadHit = false)
     {
         currentHealth -= amount;
         currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
@@ -114,7 +125,6 @@ public class PlayerHealth : MonoBehaviourPun
         }
 
         // Default behavior for the object after death is game-specific.
-        // We avoid destroying the player object here because we want the network leave flow to run first.
     }
 
     private void StartLeaveRoomFlow()
@@ -153,7 +163,7 @@ public class PlayerHealth : MonoBehaviourPun
         if (photonView != null && !photonView.IsMine) return;
 
         Debug.Log($"[PlayerHealth] RPC_TakeDamage received on actor {PhotonNetwork.LocalPlayer?.ActorNumber ?? -1}: amount={amount}, isHead={isHead}, attacker={attackerActorNumber}");
-        TakeDamage(amount, isHead);
+        ApplyDamage(amount, isHead);
     }
 
     // Sent by the owner to all other clients so they can update remote nameplates/HUDs for this player.
@@ -209,12 +219,10 @@ public class LeaveRoomHandler : MonoBehaviourPunCallbacks
 
         if (PhotonNetwork.InRoom)
         {
-            // Ask Photon to leave the room — OnLeftRoom will be invoked on this handler.
             PhotonNetwork.LeaveRoom();
         }
         else
         {
-            // Not in a room — just load the Lobby directly
             LoadLobbyNow();
         }
     }
@@ -222,7 +230,6 @@ public class LeaveRoomHandler : MonoBehaviourPunCallbacks
     public override void OnLeftRoom()
     {
         Debug.Log("[LeaveRoomHandler] OnLeftRoom triggered.");
-        // Safely destroy player-owned instantiated objects if any remain
         try
         {
             if (PhotonNetwork.LocalPlayer != null)
@@ -238,10 +245,8 @@ public class LeaveRoomHandler : MonoBehaviourPunCallbacks
     private void LoadLobbyNow()
     {
         Debug.Log("[LeaveRoomHandler] Loading lobby scene: " + lobbySceneToLoad);
-        // If still connected to Photon, use PhotonNetwork.LoadLevel to have Photon optionally manage scene loading/sync.
         if (PhotonNetwork.IsConnected)
         {
-            // Use LoadLevel to allow Photon to hold the connection if desired.
             PhotonNetwork.LoadLevel(lobbySceneToLoad);
         }
         else
@@ -249,15 +254,12 @@ public class LeaveRoomHandler : MonoBehaviourPunCallbacks
             SceneManager.LoadScene(lobbySceneToLoad);
         }
 
-        // We keep this handler alive for a short moment in case the scene load triggers OnDisconnected etc.
-        // Optionally destroy after a delay
         Destroy(gameObject, 2f);
     }
 
     public override void OnDisconnected(Photon.Realtime.DisconnectCause cause)
     {
         Debug.LogWarning("[LeaveRoomHandler] OnDisconnected: " + cause);
-        // If disconnected unexpectedly, just load the lobby scene locally as fallback
         if (!string.IsNullOrEmpty(lobbySceneToLoad))
             SceneManager.LoadScene(lobbySceneToLoad);
     }

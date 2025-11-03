@@ -1,16 +1,19 @@
+// HitboxDamage.cs
 using UnityEngine;
 using Photon.Pun;
 
 /// <summary>
 /// Robust hitbox handler. Put this on trigger colliders (head/body).
-/// Requires bullet prefab to have BulletOwner (with ownerActorNumber) and Bullet (IsPooled) components.
+/// Requires the bullet prefab to have BulletOwner (ownerActorNumber + optional metadata) and Bullet components.
+/// This file contains a tiny DamageInfo + DamagePipeline to compute final outgoing damage
+/// using metadata attached to the bullet by the shooter (headshot multipliers, ignore-body flag, etc).
 /// </summary>
 public class HitboxDamage : MonoBehaviour
 {
     [Tooltip("Damage to apply when this hitbox is hit (used for body; used as fallback on head).")]
     public int damage = 15;
 
-    [Tooltip("Check if this is the head hitbox. Headshots will multiply the body damage by 3.")]
+    [Tooltip("Check if this is the head hitbox. Headshots traditionally multiply the body damage.")]
     public bool isHead = false;
 
     [Tooltip("If true, bullets fired by the same player will not damage that player.")]
@@ -33,7 +36,7 @@ public class HitboxDamage : MonoBehaviour
         BulletOwner bo = other.GetComponentInParent<BulletOwner>();
         if (bo == null)
         {
-            Debug.LogWarning($"[HitboxDamage] Hit by object tagged 'Bullet' but no BulletOwner found on parents of '{other.gameObject.name}'.");
+            Debug.LogWarning($"[HitboxDamage] Hit by 'Bullet' but no BulletOwner on parents of '{other.gameObject.name}'.");
             CleanupBullet(other);
             return;
         }
@@ -41,7 +44,7 @@ public class HitboxDamage : MonoBehaviour
         // Find Bullet component (to check pooled status)
         Bullet bulletComp = other.GetComponentInParent<Bullet>();
 
-        // Find PlayerHealth for this hitbox
+        // Find PlayerHealth for this hitbox (the victim)
         PlayerHealth ph = GetComponentInParent<PlayerHealth>();
         if (ph == null)
         {
@@ -50,49 +53,50 @@ public class HitboxDamage : MonoBehaviour
             return;
         }
 
-        // Compute damage (headshot rules)
-        int appliedDamage;
-        if (isHead)
+        // Determine the base damage to use (head should fallback to body damage value if present)
+        int baseDamage = damage;
+        if (isHead && ph.bodyCollider != null)
         {
-            int bodyDamage = damage;
-            if (ph.bodyCollider != null)
-            {
-                HitboxDamage bodyHb = ph.bodyCollider.GetComponent<HitboxDamage>();
-                if (bodyHb != null) bodyDamage = bodyHb.damage;
-            }
-            appliedDamage = bodyDamage * 3;
+            var bodyHb = ph.bodyCollider.GetComponent<HitboxDamage>();
+            if (bodyHb != null) baseDamage = bodyHb.damage;
         }
-        else appliedDamage = damage;
 
-        // Find target PhotonView and owner actor
+        // Build DamageInfo
+        DamageInfo dinfo = new DamageInfo()
+        {
+            baseDamage = baseDamage,
+            isHead = isHead,
+            attackerActor = bo != null ? bo.ownerActorNumber : -1
+        };
+
+        // Let DamagePipeline compute the final outgoing damage using the bullet metadata (if present).
+        int finalDamage = DamagePipeline.ProcessOutgoingDamage(dinfo, bo);
+
+        // Determine target PhotonView owner actor
         PhotonView targetPv = ph.GetComponent<PhotonView>();
         int targetActor = -1;
         if (targetPv != null && targetPv.Owner != null) targetActor = targetPv.Owner.ActorNumber;
 
-        // Debug log: who hit who
-        Debug.Log($"[HitboxDamage] Bullet by actor={bo.ownerActorNumber} hit playerActor={targetActor} ({ph.name}). appliedDamage={appliedDamage} isHead={isHead}");
+        Debug.Log($"[HitboxDamage] Bullet by actor={dinfo.attackerActor} hit playerActor={targetActor} ({ph.name}). baseDamage={dinfo.baseDamage} finalDamage={finalDamage} isHead={isHead}");
 
         // Friendly-fire check
-        if (ignoreFriendlyFire && bo.ownerActorNumber >= 0 && targetActor >= 0 && bo.ownerActorNumber == targetActor)
+        if (ignoreFriendlyFire && dinfo.attackerActor >= 0 && targetActor >= 0 && dinfo.attackerActor == targetActor)
         {
             Debug.Log("[HitboxDamage] Ignored friendly fire (attacker == target).");
             CleanupBullet(other, bulletComp);
             return;
         }
 
-        // If we have a Photon target owner, RPC the authoritative TakeDamage on the owner client.
+        // Send the numeric finalDamage to the target owner (authoritative on owner client)
         if (targetPv != null && PhotonNetwork.InRoom && targetPv.Owner != null)
         {
-            // NOTE: this RPC is targeted at the owner of the target player, so damage is applied authoritatively.
-            // It will call the owner's RPC_TakeDamage(amount, isHead, attackerActorNumber)
-            targetPv.RPC("RPC_TakeDamage", targetPv.Owner, appliedDamage, isHead, bo.ownerActorNumber);
-
-            Debug.Log($"[HitboxDamage] Sent RPC_TakeDamage to actor {targetPv.Owner.ActorNumber} (attacker {bo.ownerActorNumber}).");
+            targetPv.RPC("RPC_TakeDamage", targetPv.Owner, finalDamage, isHead, dinfo.attackerActor);
+            Debug.Log($"[HitboxDamage] Sent RPC_TakeDamage to actor {targetPv.Owner.ActorNumber} (attacker {dinfo.attackerActor}).");
         }
         else
         {
             // Offline / no PhotonView on target: apply locally
-            ph.TakeDamage(appliedDamage, isHead);
+            ph.TakeDamage(finalDamage, isHead);
             Debug.Log("[HitboxDamage] Applied damage locally (no PhotonView/owner).");
         }
 
@@ -118,4 +122,54 @@ public class HitboxDamage : MonoBehaviour
         GameObject root = bulletCollider.transform.root.gameObject;
         Destroy(root);
     }
+
+    #region DamageInfo & pipeline (lightweight)
+    /// <summary>
+    /// Minimal damage transport structure used locally before the final numeric damage is calculated.
+    /// </summary>
+    public struct DamageInfo
+    {
+        public int baseDamage;
+        public bool isHead;
+        public int attackerActor;
+    }
+
+    /// <summary>
+    /// Lightweight damage pipeline that inspects BulletOwner metadata and returns a final integer damage value.
+    /// This is intentionally simple — it reads headshotMultiplier, outgoingDamageMultiplier, ignoreBodyHits from the bullet metadata.
+    /// If the metadata isn't present, it falls back to legacy behavior (headMultiplier = 3, outgoing multiplier = 1).
+    /// </summary>
+    public static class DamagePipeline
+    {
+        public static int ProcessOutgoingDamage(DamageInfo info, BulletOwner bulletOwner)
+        {
+            // Defaults (legacy)
+            float headMultiplier = 3f;
+            float outgoingMult = 1f;
+            bool ignoreBody = false;
+
+            if (bulletOwner != null)
+            {
+                // Use provided metadata if valid
+                if (bulletOwner.headshotMultiplier > 0f) headMultiplier = bulletOwner.headshotMultiplier;
+                if (bulletOwner.outgoingDamageMultiplier > 0f) outgoingMult = bulletOwner.outgoingDamageMultiplier;
+                ignoreBody = bulletOwner.ignoreBodyHits;
+            }
+
+            // If body hits are ignored (e.g. Justice), then a non-head hit does no damage.
+            if (!info.isHead && ignoreBody)
+                return 0;
+
+            // Compute base result
+            float raw = info.baseDamage * outgoingMult;
+
+            if (info.isHead)
+                raw *= headMultiplier;
+
+            // Ensure at least 0 and convert to int (ceil to favor gameplay)
+            int finalDamage = Mathf.CeilToInt(Mathf.Max(0f, raw));
+            return finalDamage;
+        }
+    }
+    #endregion
 }

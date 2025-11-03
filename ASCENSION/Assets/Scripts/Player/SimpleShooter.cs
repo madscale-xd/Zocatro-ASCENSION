@@ -1,4 +1,4 @@
-// SimpleShooter_PhotonSafe.cs
+// SimpleShooter_PhotonSafe.cs (modified)
 using UnityEngine;
 using Photon.Pun;
 using System.Collections;
@@ -31,6 +31,19 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     public bool usePooling = true;
     public int poolSize = 20;
 
+    // --- NEW: Defaults that TarotSelection will modify ---
+    [Header("Bullet metadata defaults (can be changed by TarotSelection)")]
+    [Tooltip("Default headshot multiplier applied to bullets (3 by default).")]
+    public float defaultHeadshotMultiplier = 3f;
+
+    [Tooltip("Default outgoing damage multiplier (1 = unchanged).")]
+    public float defaultOutgoingDamageMultiplier = 1f;
+
+    [Tooltip("If true, body hits are ignored for bullets (no body damage).")]
+    public bool defaultIgnoreBodyHits = false;
+
+    // --------------------------
+
     // runtime
     float nextFireTime = 0f;
     private GameObject[] pool;
@@ -42,8 +55,14 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     // Name for the shared root that stores per-player pools but is NOT parented to player transforms
     const string GLOBAL_POOLS_ROOT_NAME = "___BulletPoolsRoot";
 
+    // store original fireRate so we can apply multipliers safely (prevent stacking)
+    private float originalFireRate = -1f;
+
     void Awake()
     {
+        // Remember original fire rate once
+        originalFireRate = fireRate;
+
         // Ensure there's a global root in the scene to hold all pools so they're not nested under player transforms
         Transform globalRoot = GetOrCreateGlobalPoolsRoot();
 
@@ -58,12 +77,10 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
                 var b = Instantiate(bulletPrefab, poolParent);
                 b.SetActive(false);
                 if (b.GetComponent<Bullet>() == null) b.AddComponent<Bullet>();
+                if (b.GetComponent<BulletOwner>() == null) b.AddComponent<BulletOwner>();
                 pool[i] = b;
             }
         }
-
-        // Do not assume Camera.main is correct on networked clones.
-        // We'll try to assign the camera for the local owner in Start.
 
         // initialize ammo
         currentAmmo = maxAmmo;
@@ -75,8 +92,6 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
         if (existing != null) return existing.transform;
 
         var go = new GameObject(GLOBAL_POOLS_ROOT_NAME);
-        // Optionally keep across scenes; remove if you don't want this:
-        // DontDestroyOnLoad(go);
         return go.transform;
     }
 
@@ -101,11 +116,6 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
                 var muzzle = transform.Find("Muzzle");
                 spawnPoint = muzzle != null ? muzzle : transform;
             }
-        }
-        else
-        {
-            // Remote instances - do not use Camera.main for firing origin
-            // (we won't do firing on remote)
         }
 
         UpdateAmmoUI();
@@ -140,6 +150,9 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
         }
     }
 
+    private void RegenOverTime() { /* not used here - omitted */ }
+
+    #region Ammo/UI helpers (unchanged)
     void TryFire()
     {
         if (isReloading) return;
@@ -164,6 +177,7 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
         if (currentAmmo <= 0 && autoReloadOnEmpty && !isReloading)
             StartCoroutine(ReloadCoroutine());
     }
+    #endregion
 
     GameObject GetBulletFromPoolOrNew(out bool pooled)
     {
@@ -172,17 +186,18 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
         {
             var inst = Instantiate(bulletPrefab);
             if (inst.GetComponent<Bullet>() == null) inst.AddComponent<Bullet>();
+            if (inst.GetComponent<BulletOwner>() == null) inst.AddComponent<BulletOwner>();
             return inst;
         }
 
         for (int i = 0; i < pool.Length; i++)
         {
-            // Defensive: if the pool slot contains a destroyed object, recreate replacement
             if (pool[i] == null)
             {
                 var repl = Instantiate(bulletPrefab, poolParent);
                 repl.SetActive(false);
                 if (repl.GetComponent<Bullet>() == null) repl.AddComponent<Bullet>();
+                if (repl.GetComponent<BulletOwner>() == null) repl.AddComponent<BulletOwner>();
                 pool[i] = repl;
             }
 
@@ -193,15 +208,13 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             }
         }
 
-        // Pool exhausted -> create temporary non-pooled bullet (do NOT add it to pool)
         var temp = Instantiate(bulletPrefab);
         if (temp.GetComponent<Bullet>() == null) temp.AddComponent<Bullet>();
+        if (temp.GetComponent<BulletOwner>() == null) temp.AddComponent<BulletOwner>();
         temp.SetActive(false);
-        // Put temporary bullets under the global root too so they don't hang under a player
         if (poolParent != null) temp.transform.SetParent(poolParent.parent, true);
         return temp;
     }
-
 
     void Fire()
     {
@@ -211,16 +224,14 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             return;
         }
 
-        // --- Determine local actor (network-safe) ---
         int myActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null) ? PhotonNetwork.LocalPlayer.ActorNumber : -1;
 
-        // --- Compute spawn origin: prefer explicit spawnPoint (muzzle), else camera eye, else player transform ---
         if (sourceCamera == null)
             sourceCamera = Camera.main;
 
         Vector3 originPos;
         Quaternion originRot;
-        const float cameraSpawnOffset = 0.25f; // spawn slightly in front of camera to avoid self-collisions
+        const float cameraSpawnOffset = 0.25f;
 
         if (spawnPoint != null)
         {
@@ -238,7 +249,6 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             originRot = transform.rotation;
         }
 
-        // --- Compute aim direction using a center-screen ray (crosshair) ---
         Vector3 aimDirection = originRot * Vector3.forward;
         float maxAimDistance = 1000f;
         Vector3 targetPoint = originPos + aimDirection * maxAimDistance;
@@ -259,9 +269,6 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             aimDirection = (targetPoint - originPos).normalized;
         }
 
-        Debug.Log($"[SimpleShooter] Fire() actor={myActor} origin={originPos} aimDir={aimDirection}");
-
-        // --- Acquire a bullet (pooled or new) ---
         bool isPooled;
         GameObject bullet = GetBulletFromPoolOrNew(out isPooled);
         if (bullet == null)
@@ -270,25 +277,27 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             return;
         }
 
-        // Ensure pooled bullets are parented under the global pool root (poolParent) so they don't follow the player transform
         if (poolParent != null)
             bullet.transform.SetParent(poolParent, true);
 
-        // Place but don't activate yet — set up everything before enabling
         bullet.transform.position = originPos;
         bullet.transform.rotation = Quaternion.LookRotation(aimDirection);
 
-        // Ensure Bullet component exists
         Bullet bulletComp = bullet.GetComponent<Bullet>();
         if (bulletComp == null)
             bulletComp = bullet.AddComponent<Bullet>();
 
-        // Assign bullet owner (network-safe) BEFORE activating the bullet so friendly-fire checks are valid immediately
+        // Assign bullet owner and metadata BEFORE activating the bullet so friendly-fire checks are valid immediately
         BulletOwner bo = bullet.GetComponent<BulletOwner>();
         if (bo == null) bo = bullet.AddComponent<BulletOwner>();
         bo.ownerActorNumber = myActor;
 
-        // Make sure a Rigidbody exists and reset its state
+        // --- APPLY CURRENT DEFAULT METADATA to the bullet ---
+        bo.headshotMultiplier = defaultHeadshotMultiplier;
+        bo.outgoingDamageMultiplier = defaultOutgoingDamageMultiplier;
+        bo.ignoreBodyHits = defaultIgnoreBodyHits;
+        // ----------------------------------------------------
+
         Rigidbody rb = bullet.GetComponent<Rigidbody>();
         if (rb == null) rb = bullet.AddComponent<Rigidbody>();
         rb.velocity = Vector3.zero;
@@ -296,7 +305,6 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
 
-        // Prevent immediate self-hit: ignore collisions with owner's colliders briefly
         if (ignoreOwnerCollision)
         {
             Collider bulletCol = bullet.GetComponent<Collider>();
@@ -307,16 +315,13 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
                 {
                     if (c != null) Physics.IgnoreCollision(bulletCol, c, true);
                 }
-                // Re-enable after short delay
                 StartCoroutine(ReenableCollisionsAfter(bullet, bulletCol, ownerCols, ignoreCollisionDuration));
             }
         }
 
-        // Finally enable the bullet and give it velocity (aimDirection ensures it goes toward crosshair)
         bullet.SetActive(true);
         rb.velocity = aimDirection * bulletSpeed;
 
-        // Launch bullet lifetime cleanup (Bullet component handles pooling/deactivation; fallback to destroy)
         if (bulletComp != null) bulletComp.Launch(bulletLifetime, isPooled);
         else Destroy(bullet, bulletLifetime);
     }
@@ -333,27 +338,20 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     {
         if (isReloading) yield break;
         isReloading = true;
-        // Optionally play reload animation/sound here
-        Debug.Log($"[SimpleShooter] Reloading for {reloadTime} seconds...");
         UpdateAmmoUI(true);
         yield return new WaitForSeconds(reloadTime);
         currentAmmo = maxAmmo;
         isReloading = false;
         UpdateAmmoUI();
-        Debug.Log("[SimpleShooter] Reload complete.");
     }
 
     void UpdateAmmoUI(bool showReloading = false)
     {
         if (ammoText == null) return;
         if (showReloading)
-        {
             ammoText.text = $"RELOADING...";
-        }
         else
-        {
             ammoText.text = $"{currentAmmo} / {maxAmmo}";
-        }
     }
 
     // API helpers
@@ -372,5 +370,33 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     public int GetCurrentAmmo()
     {
         return currentAmmo;
+    }
+
+    // ---------------- NEW PUBLIC API ----------------
+    /// <summary>
+    /// Applies a fire-rate multiplier based on the original fireRate captured in Awake().
+    /// multiplier > 1 makes firing slower (e.g. 2 doubles the delay between shots).
+    /// multiplier < 1 makes firing faster.
+    /// </summary>
+    /// <param name="multiplier"></param>
+    public void SetFireRateMultiplier(float multiplier)
+    {
+        if (originalFireRate <= 0f)
+            originalFireRate = fireRate;
+
+        fireRate = originalFireRate * multiplier;
+        Debug.Log($"[SimpleShooter] fireRate adjusted to {fireRate} (multiplier {multiplier}).");
+    }
+
+    /// <summary>
+    /// Restore fireRate to original (undo any multipliers).
+    /// </summary>
+    public void RestoreFireRate()
+    {
+        if (originalFireRate > 0f)
+        {
+            fireRate = originalFireRate;
+            Debug.Log($"[SimpleShooter] fireRate restored to {fireRate}.");
+        }
     }
 }
