@@ -435,6 +435,9 @@ PrefabInstance:
     m_RemovedGameObjects: []
     m_AddedGameObjects:
     - targetCorrespondingSourceObject: {fileID: 4996375368091697761, guid: ed9ffd9fb61a1054880bffecbc42ef6f, type: 3}
+      insertIndex: 0
+      addedObject: {fileID: 955260687}
+    - targetCorrespondingSourceObject: {fileID: 4996375368091697761, guid: ed9ffd9fb61a1054880bffecbc42ef6f, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1848764693}
     - targetCorrespondingSourceObject: {fileID: 4996375368091697761, guid: ed9ffd9fb61a1054880bffecbc42ef6f, type: 3}
@@ -462,6 +465,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 1142426113826703355, guid: ed9ffd9fb61a1054880bffecbc42ef6f, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1654149494}
+    - targetCorrespondingSourceObject: {fileID: 1142426113826703355, guid: ed9ffd9fb61a1054880bffecbc42ef6f, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1654149495}
     - targetCorrespondingSourceObject: {fileID: 2582093689261947553, guid: ed9ffd9fb61a1054880bffecbc42ef6f, type: 3}
       insertIndex: -1
       addedObject: {fileID: 0}
@@ -771,6 +777,94 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 921364255}
   m_CullTransparentMesh: 1
+--- !u!1 &955260686
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 955260687}
+  - component: {fileID: 955260689}
+  - component: {fileID: 955260688}
+  - component: {fileID: 955260690}
+  m_Layer: 0
+  m_Name: HomeoImage
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &955260687
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 955260686}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 19.115509, y: 10.675, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 667884618}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: -0.000061035, y: 0}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &955260688
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 955260686}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Material: {fileID: 0}
+  m_Color: {r: 0.0042078425, g: 0.62302566, b: 0.7433963, a: 1}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 0}
+  m_Type: 0
+  m_PreserveAspect: 0
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!222 &955260689
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 955260686}
+  m_CullTransparentMesh: 1
+--- !u!225 &955260690
+CanvasGroup:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 955260686}
+  m_Enabled: 1
+  m_Alpha: 1
+  m_Interactable: 0
+  m_BlocksRaycasts: 1
+  m_IgnoreParentGroups: 0
 --- !u!1 &1026616923
 GameObject:
   m_ObjectHideFlags: 0
@@ -1327,7 +1421,7 @@ MonoBehaviour:
   - Untagged
   errorMessageText: {fileID: 446200828}
   errorCooldownOnAimingError: 1
-  characterName: REGALIA
+  characterName: SIGIL
   offensiveSkillName: OffensiveSkill
   defensiveSkillName: DefensiveSkill
   maxCharge: 100
@@ -1343,7 +1437,7 @@ MonoBehaviour:
   beaconPrefab: {fileID: 1461045484651249340, guid: 3f5f4d381b8293547b7bc168d725b03b, type: 3}
   cannonballPrefab: {fileID: 1115515776296910681, guid: 64c3e6358d9b54348acf86b95068e083, type: 3}
   guardPrefab: {fileID: 4943579344932579185, guid: d7dc2cc50cf4497428095b6852f65846, type: 3}
-  electricFieldPrefab: {fileID: 0}
+  electricFieldPrefab: {fileID: 8214807413152268108, guid: cb54d88d72140974fa3ca0578cb94728, type: 3}
   homeostasisEffectPrefab: {fileID: 0}
   gnawingDamage: 50
   gnawingHoundSpeed: 12
@@ -1354,11 +1448,11 @@ MonoBehaviour:
   thornveilDuration: 10
   downwardDelay: 2
   downwardDamage: 75
-  tetherRadius: 4
+  tetherRadius: 3
   tetherRootDuration: 1.5
-  homeostasisShieldAmount: 200
+  homeostasisShieldAmount: 100
   homeostasisHealAmount: 50
-  homeostasisDuration: 1
+  homeostasisDuration: 1.25
   cost_MAYHEM_Q: 20
   cost_MAYHEM_E: 15
   cost_IVY_Q: 25
@@ -1411,6 +1505,22 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   actorNumber: -1
+--- !u!114 &1654149495
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1654149446}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fdfaaa1f67131b54eb1976d0e0ec96c8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  movementCancelThreshold: 0.05
+  homeostasisCanvasGroup: {fileID: 955260690}
+  homeostasisPulseAlpha: 0.3
+  homeostasisPulseStepDuration: 0.25
 --- !u!1 &1848764692
 GameObject:
   m_ObjectHideFlags: 0

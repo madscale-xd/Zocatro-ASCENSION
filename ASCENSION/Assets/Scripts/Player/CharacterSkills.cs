@@ -622,37 +622,79 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     }
 
     // -------- SIGIL --------
-    private void Ability_Sigil_TetheringPulse()
+    // --- TETHERING PULSE (Q) ---
+// CharacterSkills: SIGIL Q - simplified spawn: only pass owner actor (no radius/expand overrides)
+private bool Ability_Sigil_TetheringPulse()
+{
+    // Only the owner runs this input (CharacterSkills owner check exists), so safe to spawn
+    int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
+        ? PhotonNetwork.LocalPlayer.ActorNumber
+        : -1;
+
+    // We only pass the owner actor in instantiationData so the pulse knows who spawned it.
+    // DO NOT pass tetherRadius/tetherRootDuration/expandDuration here — let the pulse prefab's inspector control those.
+    object[] instData = new object[] { ownerActor };
+
+    GameObject pulse = SpawnPrefab(electricFieldPrefab, transform.position, Quaternion.identity, instData);
+
+    // Local fallback initialization: set ownerGameObject so the pulse can ignore owner's colliders etc.
+    if (pulse != null && !PhotonNetwork.InRoom)
     {
-        // Spawn electric field at player that roots and stops healing
-        Vector3 spawn = transform.position;
-        GameObject field = SpawnPrefab(electricFieldPrefab, spawn, Quaternion.identity);
-        // Notify local objects: use OverlapSphere to inform targets (owner-side)
-        ApplyAOEAction(spawn, tetherRadius, (Collider c) =>
+        var pb = pulse.GetComponent<ExpandingPulseBehavior>();
+        if (pb != null)
         {
-            // Suggested API on targets: "ApplyRoot" and "StopHealing"
-            c.gameObject.SendMessage("ApplyRoot", tetherRootDuration, SendMessageOptions.DontRequireReceiver);
-            c.gameObject.SendMessage("StopHealing", tetherRootDuration, SendMessageOptions.DontRequireReceiver);
-        });
-        DestroyIfLocal(field, 2f);
+            // InitializeFromSpawner expects radius/rootDur/expandDur but only applies values > 0.
+            // We pass -1 for those floats so the pulse keeps whatever inspector values are set on the prefab.
+            pb.InitializeFromSpawner(ownerActor, this.gameObject, -1f, -1f, true, -1f);
+        }
     }
 
-    private void Ability_Sigil_Homeostasis()
+    // Do NOT DestroyIfLocal(pulse, ... ) here — ExpandingPulseBehavior will self-destruct after expansion by default.
+    // If you want a fallback local-only destroy (for preview), you can keep a long buffer, but it's usually redundant.
+
+    return true; // success — consumes full charge
+}
+
+    // --- HOMEOSTASIS (E) ---
+    private bool Ability_Sigil_Homeostasis()
     {
-        // Instantly grant shield and heal while immobilizing and granting invulnerability for a short time.
-        // We use SendMessage to call into your player's health/shield system: "ApplyShield", "Heal", "ApplyInvulnerability", "SetImmobilized"
-        gameObject.SendMessage("ApplyShield", homeostasisShieldAmount, SendMessageOptions.DontRequireReceiver);
-        gameObject.SendMessage("Heal", homeostasisHealAmount, SendMessageOptions.DontRequireReceiver);
-        gameObject.SendMessage("ApplyInvulnerability", homeostasisDuration, SendMessageOptions.DontRequireReceiver);
-        // Immobilize (you'll want to un-immobilize after duration)
-        gameObject.SendMessage("SetImmobilized", true, SendMessageOptions.DontRequireReceiver);
-        StartCoroutine(HomeostasisEndCoroutine(homeostasisDuration));
-        // spawn effect
+        // Homeostasis is owner-only effect (it affects only the caster's shield/HP/invuln).
+        // CharacterSkills only runs for the owner, so we call the player's PlayerStatus to apply this.
+        var status = GetComponentInChildren<PlayerStatus>(true) ?? GetComponent<PlayerStatus>();
+        if (status == null)
+        {
+            // If there's no PlayerStatus on the player prefab, try to find one on the root player object
+            status = GetComponentInParent<PlayerStatus>();
+        }
+
+        if (status == null)
+        {
+            // Minimal fallback: apply one-shot shield + heal (no immobilize / no gradual application).
+            Debug.LogWarning("[CharacterSkills] Homeostasis: no PlayerStatus found. Applying immediate shield/heal fallback (no immobilize/invuln). " +
+                            "Recommend adding PlayerStatus to player prefab to enable full behavior.");
+
+            gameObject.SendMessage("ApplyShield", homeostasisShieldAmount, SendMessageOptions.DontRequireReceiver);
+            gameObject.SendMessage("Heal", homeostasisHealAmount, SendMessageOptions.DontRequireReceiver);
+
+            // We won't set immobilize or invulnerability here to avoid duplicate/conflicting logic.
+        }
+        else
+        {
+            // Delegate full homeostasis behaviour to PlayerStatus (owner-local).
+            status.StartHomeostasis(homeostasisShieldAmount, homeostasisHealAmount, homeostasisDuration);
+        }
+
+        // spawn visual effect for others/yourself (optional). Use networked visual or local-only as desired.
         if (homeostasisEffectPrefab != null)
         {
-            GameObject fx = SpawnPrefab(homeostasisEffectPrefab, transform.position, Quaternion.identity);
-            DestroyIfLocal(fx, homeostasisDuration + 0.25f);
+            // Pass instantiation data: [0]=ownerActor so visual can be owner-aware if needed
+            int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null) ? PhotonNetwork.LocalPlayer.ActorNumber : -1;
+            object[] inst = new object[] { ownerActor };
+            GameObject fx = SpawnPrefab(homeostasisEffectPrefab, transform.position, Quaternion.identity, inst);
+            DestroyIfLocal(fx, homeostasisDuration + 0.5f);
         }
+
+        return true; // success - consumes full charge
     }
     #endregion
 
@@ -704,15 +746,6 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
                 c.gameObject.SendMessage("TakeDamage", downwardDamage, SendMessageOptions.DontRequireReceiver);
             });
         }
-    }
-
-    IEnumerator HomeostasisEndCoroutine(float duration)
-    {
-        yield return new WaitForSeconds(duration);
-        // un-immobilize player
-        gameObject.SendMessage("SetImmobilized", false, SendMessageOptions.DontRequireReceiver);
-        // Remove invulnerability if your system expects a call
-        gameObject.SendMessage("RemoveInvulnerability", SendMessageOptions.DontRequireReceiver);
     }
 
     private void ApplyAOEAction(Vector3 center, float radius, Action<Collider> action, int ownerActor = -1, GameObject ownerGameObject = null)
