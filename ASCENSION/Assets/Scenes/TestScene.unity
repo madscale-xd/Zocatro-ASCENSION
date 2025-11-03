@@ -1173,7 +1173,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 76049d373b92f5b4f8b69da27c44ad14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  characterName: Mayhem
+  characterName: MAYHEM
   offensiveSkillName: OffensiveSkill
   defensiveSkillName: DefensiveSkill
   maxCharge: 100
@@ -1181,6 +1181,38 @@ MonoBehaviour:
   chargeBarImage: {fileID: 1026616925}
   syncChargeOverNetwork: 1
   currentCharge: 0
+  houndPrefab: {fileID: 2352081495868096662, guid: 88525e0dbec1afa45ab622720d19da07, type: 3}
+  puffPrefab: {fileID: 7539247010639306655, guid: 41107063f43ffde48888fe4882bc65d2, type: 3}
+  orbEffectPrefab: {fileID: 0}
+  turretPlantPrefab: {fileID: 0}
+  plantWallPrefab: {fileID: 0}
+  beaconPrefab: {fileID: 0}
+  cannonballPrefab: {fileID: 0}
+  guardPrefab: {fileID: 0}
+  electricFieldPrefab: {fileID: 0}
+  homeostasisEffectPrefab: {fileID: 0}
+  gnawingDamage: 50
+  gnawingHoundSpeed: 12
+  gnawingLifetime: 4
+  darkPropulsionSpeed: 25
+  darkPropulsionDuration: 0.25
+  sporewardDuration: 20
+  thornveilDuration: 10
+  downwardDelay: 2
+  downwardDamage: 75
+  tetherRadius: 4
+  tetherRootDuration: 1.5
+  homeostasisShieldAmount: 200
+  homeostasisHealAmount: 50
+  homeostasisDuration: 1
+  cost_MAYHEM_Q: 20
+  cost_MAYHEM_E: 15
+  cost_IVY_Q: 25
+  cost_IVY_E: 20
+  cost_REGALIA_Q: 30
+  cost_REGALIA_E: 18
+  cost_SIGIL_Q: 20
+  cost_SIGIL_E: 25
 --- !u!114 &1654149478
 MonoBehaviour:
   m_ObjectHideFlags: 0
