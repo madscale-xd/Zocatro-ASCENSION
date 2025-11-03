@@ -65,14 +65,25 @@ public class HoundBehaviour : MonoBehaviourPun
             rb.interpolation = RigidbodyInterpolation.Interpolate;
         }
 
-        // read instantiation data (if any)
+        // If an OwnedEntity component exists, prefer its owner info
+        var owned = GetComponent<OwnedEntity>();
+        if (owned != null && owned.ownerActor >= 0)
+        {
+            ownerActorNumber = owned.ownerActor;
+        }
+
+        // read instantiation data (if any) as a fallback / compatibility
         var pv = GetComponent<PhotonView>();
         if (pv != null && pv.InstantiationData != null)
         {
             try
             {
                 object[] data = pv.InstantiationData;
-                if (data.Length >= 1 && data[0] is int) ownerActorNumber = (int)data[0];
+                if (data.Length >= 1)
+                {
+                    // instantiation might use int or other numeric types
+                    try { ownerActorNumber = Convert.ToInt32(data[0]); } catch { }
+                }
                 if (data.Length >= 2) damage = Convert.ToInt32(data[1]);
                 if (data.Length >= 3) speed = Convert.ToSingle(data[2]);
                 if (data.Length >= 4) lifetime = Convert.ToSingle(data[3]);
@@ -93,7 +104,7 @@ public class HoundBehaviour : MonoBehaviourPun
 
         myColliders = GetComponentsInChildren<Collider>(true);
 
-        // find owner colliders so we can ignore collisions briefly
+        // find owner colliders so we can ignore collisions briefly (if ownerActorNumber available)
         if (ownerActorNumber >= 0)
         {
             var allPVs = FindObjectsOfType<PhotonView>();
@@ -104,6 +115,16 @@ public class HoundBehaviour : MonoBehaviourPun
                     ownerColliders = p.GetComponentsInChildren<Collider>(true);
                     break;
                 }
+            }
+        }
+
+        // If OwnedEntity contained a direct ownerGameObject, prefer that for ownerColliders
+        if (ownerColliders == null || ownerColliders.Length == 0)
+        {
+            var oe = GetComponent<OwnedEntity>();
+            if (oe != null && oe.ownerGameObject != null)
+            {
+                ownerColliders = oe.ownerGameObject.GetComponentsInChildren<Collider>(true);
             }
         }
 
@@ -176,6 +197,10 @@ public class HoundBehaviour : MonoBehaviourPun
         if (targetPv != null && targetPv.Owner != null && ph != null)
         {
             int actorNum = targetPv.Owner.ActorNumber;
+
+            // skip if same owner (double-check)
+            if (ownerActorNumber >= 0 && actorNum == ownerActorNumber) return;
+
             if (!damagedActorNumbers.Contains(actorNum))
             {
                 // call their owner RPC to apply damage (authoritative)
@@ -198,6 +223,12 @@ public class HoundBehaviour : MonoBehaviourPun
         {
             // local/offline PlayerHealth (no PhotonView owner) — apply damage directly once per instance
             int id = ph.gameObject.GetInstanceID();
+
+            // skip if ownerGameObject equals this target (if OwnedEntity provided ownerGameObject)
+            var oe = GetComponent<OwnedEntity>();
+            if (oe != null && oe.ownerGameObject != null && oe.ownerGameObject == ph.gameObject)
+                return;
+
             if (!damagedInstanceIds.Contains(id))
             {
                 ph.TakeDamage(damage, false);
@@ -290,9 +321,9 @@ public class HoundBehaviour : MonoBehaviourPun
     }
 
     /// <summary>
-/// Call this when you spawned the hound via local Instantiate or want to ensure owner is set immediately.
-/// Safe to call after Awake() (which runs automatically on spawn).
-/// </summary>
+    /// Call this when you spawned the hound via local Instantiate or want to ensure owner is set immediately.
+    /// Safe to call after Awake() (which runs automatically on spawn).
+    /// </summary>
     public void InitializeFromSpawner(int ownerActor, GameObject ownerGO,
                                     int dmg, float spd, float life,
                                     GameObject smokePrefabOverride, float smokeDur, float smokeInt)
@@ -305,6 +336,10 @@ public class HoundBehaviour : MonoBehaviourPun
         if (smokePrefabOverride != null) smokePrefab = smokePrefabOverride;
         smokeDuration = smokeDur;
         smokeInterval = smokeInt;
+
+        // also forward to OwnedEntity if present
+        var oe = GetComponent<OwnedEntity>();
+        if (oe != null) oe.InitializeFromSpawner(ownerActor, ownerGO);
 
         // set velocity now that speed may have changed
         moveDir = transform.forward.normalized;

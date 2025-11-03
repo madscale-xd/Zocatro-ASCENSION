@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using Photon.Pun;
+using System;
 
 /// <summary>
 /// Sporeward turret (detection collider + projectile-ignore support)
@@ -81,13 +82,21 @@ public class SporewardTurret : MonoBehaviourPunCallbacks
         if (photonView != null && photonView.InstantiationData != null && photonView.InstantiationData.Length >= 1)
         {
             object[] d = photonView.InstantiationData;
-            if (d.Length >= 1 && d[0] is int) ownerActor = (int)d[0];
+            if (d.Length >= 1)
+            {
+                try { ownerActor = Convert.ToInt32(d[0]); } catch { }
+            }
             if (d.Length >= 2)
             {
                 if (d[1] is int) hp = (int)d[1];
                 else if (d[1] is float) hp = Mathf.RoundToInt((float)d[1]);
             }
         }
+
+        // OwnedEntity fallback
+        var oe = GetComponent<OwnedEntity>();
+        if (oe != null && oe.ownerActor >= 0) ownerActor = oe.ownerActor;
+        if (oe != null && oe.ownerGameObject != null) ownerObject = oe.ownerGameObject;
     }
 
     void Start()
@@ -113,6 +122,20 @@ public class SporewardTurret : MonoBehaviourPunCallbacks
         ownerActor = ownerActor_;
         ownerObject = ownerObj_;
         hp = hp_;
+    }
+
+    /// <summary>
+    /// Aligns the turret to a RaycastHit surface (position + normal). Optionally parents to the hit collider's transform.
+    /// Call this on locally-instantiated turrets (SpawnPrefab fallback) or for preview placement.
+    /// </summary>
+    public void PlaceOnSurface(RaycastHit hit, bool parentToSurface = false)
+    {
+        transform.position = hit.point + hit.normal * 0.01f;
+        transform.rotation = Quaternion.LookRotation(-hit.normal, Vector3.up);
+        if (parentToSurface && hit.collider != null)
+        {
+            transform.SetParent(hit.collider.transform, true);
+        }
     }
 
     // ----- Detection via OverlapSphere -----
@@ -191,6 +214,21 @@ public class SporewardTurret : MonoBehaviourPunCallbacks
 
                     // ensure turret's own colliders don't block the projectile
                     IgnoreProjectileWithTurret(p);
+
+                    // If projectile has OwnedEntity or expects owner data, initialize it
+                    var oe = p.GetComponent<OwnedEntity>();
+                    if (oe != null)
+                        oe.InitializeFromSpawner(ownerActor, ownerObject);
+                    // If projectile has a simple script expecting InitializeFromSpawner, try to call it (reflection-safe)
+                    var init = p.GetComponent<MonoBehaviour>();
+                    if (init != null)
+                    {
+                        var m = init.GetType().GetMethod("InitializeFromSpawner");
+                        if (m != null)
+                        {
+                            try { m.Invoke(init, new object[] { ownerActor, ownerObject, Mathf.RoundToInt(damage) }); } catch { }
+                        }
+                    }
                 }
                 else if (applyHitscanIfNoProjectile)
                 {
@@ -236,16 +274,23 @@ public class SporewardTurret : MonoBehaviourPunCallbacks
     {
         if (other == null) return;
 
-        // Ignore projectiles that this turret spawned (we already called IgnoreCollision for those).
         // Consider other objects matching projectileTags.
         bool tagMatch = projectileTags != null && projectileTags.Any(t => !string.IsNullOrEmpty(t) && other.CompareTag(t));
         if (!tagMatch) return;
+
+        // If the projectile has ownership info, skip if it belongs to the turret owner (no friendly fire)
+        var projOwned = other.GetComponentInChildren<OwnedEntity>();
+        if (projOwned != null && projOwned.ownerActor >= 0 && ownerActor >= 0 && projOwned.ownerActor == ownerActor)
+        {
+            // projectile belongs to same owner as turret -> ignore
+            return;
+        }
 
         // attempt to read damage value from projectile
         float dmg = GetDamageFromObject(other);
         if (Mathf.Approximately(dmg, 0f)) dmg = defaultProjectileDamage;
 
-        // apply damage (authoritative via RPC to owner)
+        // apply damage (authoritative via RPC to owner of this turret)
         TakeDamage(dmg);
 
         // destroy the projectile (prefer networked destroy if applicable)

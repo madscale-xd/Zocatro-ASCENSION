@@ -6,6 +6,8 @@ TagManager:
   tags:
   - Bullet
   - Hitbox
+  - Wall
+  - Ground
   layers:
   - Default
   - TransparentFX

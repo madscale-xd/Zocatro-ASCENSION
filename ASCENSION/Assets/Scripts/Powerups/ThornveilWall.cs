@@ -180,4 +180,27 @@ public class ThornveilWall : MonoBehaviourPunCallbacks
             Destroy(gameObject);
         }
     }
+
+    /// <summary>
+    /// Aligns this ThornveilWall so it sits on the given hit surface.
+    /// If parentToSurface is true, the wall will be parented to the hit collider's transform (keeps it attached to moving geometry).
+    /// </summary>
+    public void PlaceOnGround(RaycastHit hit, bool parentToSurface = false)
+    {
+        if (hit.collider == null) return;
+
+        // Slightly lift above surface to avoid z-fighting
+        transform.position = hit.point + hit.normal * 0.01f;
+
+        // Choose a forward direction projected onto the ground plane (so the wall stands upright)
+        Vector3 forward = Vector3.ProjectOnPlane(Camera.main != null ? Camera.main.transform.forward : transform.forward, hit.normal).normalized;
+        if (forward.sqrMagnitude < 0.0001f) forward = Vector3.forward;
+
+        transform.rotation = Quaternion.LookRotation(forward, hit.normal);
+
+        if (parentToSurface)
+        {
+            transform.SetParent(hit.collider.transform, true);
+        }
+    }
 }

@@ -3,17 +3,34 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using Photon.Pun;
+using TMPro;
 
 /// <summary>
 /// CharacterSkills - charge handling + character-specific abilities
 /// Uses your existing charge system and maps Q/E to abilities by characterName.
 /// NOTE: Prefabs spawned via PhotonNetwork.Instantiate must be placed in Resources/ for Photon.
 /// Damage/status application uses SendMessage so you can integrate with your Health/System APIs.
-/// All abilities now REQUIRE the charge pool to be FULL (currentCharge >= maxCharge) and will consume the entire pool on cast.
+/// All abilities now REQUIRE the charge pool to be FULL (currentCharge >= maxCharge) and will consume the entire pool on successful cast.
+/// If an aiming/placement error occurs, charge is NOT consumed; instead a short cooldown is applied.
 /// </summary>
 [DisallowMultipleComponent]
 public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
 {
+    [Header("Placement filters")]
+    [Tooltip("Tags to ignore when raycasting for ability placement (e.g. Hitbox, Bullet, Untagged).")]
+    public string[] placementIgnoredTags = new string[] { "Hitbox", "Bullet", "Untagged" };
+
+    [Header("UI Feedback")]
+    [Tooltip("Optional TMP text used for temporary error messages (alpha should start at 0).")]
+    public TextMeshProUGUI errorMessageText;
+
+    [Header("Cooldown on error")]
+    [Tooltip("Cooldown (seconds) applied when an ability fails to cast due to aiming/placement error.")]
+    public float errorCooldownOnAimingError = 1f;
+
+    // runtime: time until next skill input is accepted (used when an aiming error occurs)
+    private float nextSkillAvailableTime = 0f;
+
     [Header("Character")]
     [Tooltip("Friendly display name for this character. Use: MAYHEM, IVY, REGALIA, SIGIL (case-insensitive).")]
     public string characterName = "NewCharacter";
@@ -113,6 +130,15 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
             originalBarWidth = chargeBarRect.sizeDelta.x;
         }
         UpdateChargeBar();
+
+        // ensure error text is initially invisible
+        if (errorMessageText != null)
+        {
+            Color col = errorMessageText.color;
+            col.a = 0f;
+            errorMessageText.color = col;
+            errorMessageText.text = string.Empty;
+        }
     }
 
     void Start()
@@ -134,6 +160,10 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
         RegenOverTime();
 
         // Input to use skills - now character-specific
+        // If we're currently inside an error-imposed cooldown, don't accept skill input
+        if (Time.time < nextSkillAvailableTime)
+            return;
+
         if (Input.GetKeyDown(offensiveKey))
         {
             TryUseOffensiveByCharacter();
@@ -222,7 +252,7 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
         switch (key)
         {
             case "MAYHEM":
-                TryConsumeFullChargeAndPerform(() => Ability_Mayhem_GnawingDread());
+                TryConsumeFullChargeAndPerform(() => { Ability_Mayhem_GnawingDread(); return true; });
                 break;
             case "IVY":
                 TryConsumeFullChargeAndPerform(() => Ability_Ivy_Sporeward());
@@ -231,10 +261,10 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
                 TryConsumeFullChargeAndPerform(() => Ability_Regalia_DownwardDecree());
                 break;
             case "SIGIL":
-                TryConsumeFullChargeAndPerform(() => Ability_Sigil_TetheringPulse());
+                TryConsumeFullChargeAndPerform(() => { Ability_Sigil_TetheringPulse(); return true; });
                 break;
             default:
-                TryConsumeFullChargeAndPerform(() => Debug.Log($"{characterName}: used generic offensive action"));
+                TryConsumeFullChargeAndPerform(() => { Debug.Log($"{characterName}: used generic offensive action"); return true; });
                 break;
         }
     }
@@ -245,39 +275,59 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
         switch (key)
         {
             case "MAYHEM":
-                TryConsumeFullChargeAndPerform(() => Ability_Mayhem_DarkPropulsion());
+                TryConsumeFullChargeAndPerform(() => { Ability_Mayhem_DarkPropulsion(); return true; });
                 break;
             case "IVY":
                 TryConsumeFullChargeAndPerform(() => Ability_Ivy_Thornveil());
                 break;
             case "REGALIA":
-                TryConsumeFullChargeAndPerform(() => Ability_Regalia_RoyalBrigand());
+                TryConsumeFullChargeAndPerform(() => { Ability_Regalia_RoyalBrigand(); return true; });
                 break;
             case "SIGIL":
-                TryConsumeFullChargeAndPerform(() => Ability_Sigil_Homeostasis());
+                TryConsumeFullChargeAndPerform(() => { Ability_Sigil_Homeostasis(); return true; });
                 break;
             default:
-                TryConsumeFullChargeAndPerform(() => Debug.Log($"{characterName}: used generic defensive action"));
+                TryConsumeFullChargeAndPerform(() => { Debug.Log($"{characterName}: used generic defensive action"); return true; });
                 break;
         }
     }
 
     /// <summary>
-    /// New: Abilities require full charge (currentCharge >= maxCharge). If satisfied, consumes entire pool (sets to 0) and invokes perform().
+    /// Attempt to perform a full-charge skill. 'tryPerform' should return true if the ability succeeded
+    /// (so charge should be consumed). Return false to indicate the ability failed (aim/placement error).
+    /// On failure, charge is preserved and an error cooldown is applied.
     /// </summary>
-    private void TryConsumeFullChargeAndPerform(Action perform)
+    private void TryConsumeFullChargeAndPerform(Func<bool> tryPerform)
     {
-        if (currentCharge + EPS >= maxCharge)
+        if (currentCharge + EPS < maxCharge)
         {
-            // consume entire pool
+            Debug.Log($"{characterName}: insufficient charge for full-charge skill (need {maxCharge}, have {currentCharge}).");
+            return;
+        }
+
+        bool success = false;
+        try
+        {
+            success = tryPerform?.Invoke() ?? false;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"Exception while performing skill: {ex.Message}");
+            success = false;
+        }
+
+        if (success)
+        {
+            // consume entire pool only on success
             currentCharge = 0f;
             UpdateChargeBar();
-            perform?.Invoke();
             Debug.Log($"{characterName}: used full-charge skill. Charge now {currentCharge}/{maxCharge}");
         }
         else
         {
-            Debug.Log($"{characterName}: insufficient charge for full-charge skill (need {maxCharge}, have {currentCharge}).");
+            // apply short cooldown and do not consume charge
+            nextSkillAvailableTime = Time.time + errorCooldownOnAimingError;
+            Debug.Log($"{characterName}: skill cast failed/invalid; applying error cooldown {errorCooldownOnAimingError}s. Charge preserved ({currentCharge}/{maxCharge})");
         }
     }
     #endregion
@@ -329,10 +379,6 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
         }
     }
 
-
-
-
-
     private void Ability_Mayhem_DarkPropulsion()
     {
         // short invulnerable dash/charge forward (owner only). We'll move the transform forward for a brief moment.
@@ -340,62 +386,128 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     }
 
     // -------- IVY --------
-    private void Ability_Ivy_Sporeward()
+    // Returns true on successful placement & spawn, false if validation/aim failed.
+    private bool Ability_Ivy_Sporeward()
     {
-        // place a turret plant on any wall/surface under your reticle.
+        // prefer a camera ray; fallback to forward from player
         Ray center = (GetCameraOrDefault())?.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f)) ?? new Ray(transform.position, transform.forward);
-        if (Physics.Raycast(center, out RaycastHit hit, 100f))
+
+        // Use RaycastAll and pick the first hit that is NOT ignored by tag
+        RaycastHit[] hits = Physics.RaycastAll(center, 100f);
+        if (hits == null || hits.Length == 0)
         {
-            Vector3 pos = hit.point + hit.normal * 0.01f;
-            Quaternion rot = Quaternion.LookRotation(-hit.normal, Vector3.up); // face away from surface
-
-            // owner actor number to pass to the turret
-            int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
-                ? PhotonNetwork.LocalPlayer.ActorNumber
-                : -1;
-
-            // pass owner and hp to the turret via instantiationData (Photon-friendly)
-            object[] instData = new object[] { ownerActor, 50 }; // HP = 50 for Sporeward
-
-            GameObject go = SpawnPrefab(turretPlantPrefab, pos, rot, instData);
-
-            // if locally instantiated (Photon not present or fallback), initialize turret manually
-            if (go != null && !PhotonNetwork.InRoom)
-            {
-                var st = go.GetComponent<SporewardTurret>();
-                if (st != null)
-                    st.InitializeFromSpawner(ownerActor, this.gameObject, 50); // hp=50
-            }
+            ShowErrorMessage("Must aim at a wall!");
+            return false;
         }
-        else
+
+        // Sort hits by distance to ensure we pick closest valid surface
+        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        RaycastHit? chosen = null;
+        foreach (var h in hits)
         {
-            Debug.Log($"{characterName}: No valid surface under reticle to place turret.");
+            if (IsIgnoredPlacementTag(h.collider)) continue;
+            chosen = h;
+            break;
         }
-    }
 
+        if (!chosen.HasValue)
+        {
+            // No non-ignored hit found
+            ShowErrorMessage("Must aim at a wall!");
+            return false;
+        }
 
-    private void Ability_Ivy_Thornveil()
-    {
-        // place a plant wall at the reticle location (or in front if no hit)
-        Ray center = (GetCameraOrDefault())?.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f)) ?? new Ray(transform.position, transform.forward);
-        Vector3 pos;
-        Quaternion rot;
-        if (Physics.Raycast(center, out RaycastHit hit, 100f))
+        var hit = chosen.Value;
+
+        // IMPORTANT: require the hit collider to be tagged "Wall"
+        if (!hit.collider.CompareTag("Wall"))
         {
-            pos = hit.point + hit.normal * 0.01f;
-            rot = Quaternion.LookRotation(hit.normal, Vector3.up);
+            ShowErrorMessage("Must aim at a wall!");
+            return false;
         }
-        else
-        {
-            pos = center.origin + center.direction * 10f;
-            rot = Quaternion.LookRotation(-center.direction, Vector3.up);
-        }
+
+        // valid wall hit -> compute placement and orientation
+        Vector3 pos = hit.point + hit.normal * 0.01f;
+        Quaternion rot = Quaternion.LookRotation(-hit.normal, Vector3.up); // face away from surface
 
         int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
             ? PhotonNetwork.LocalPlayer.ActorNumber
             : -1;
 
-        // pass owner and hp to the wall via instantiationData (Photon-friendly)
+        object[] instData = new object[] { ownerActor, 50 }; // HP = 50 for Sporeward
+
+        GameObject go = SpawnPrefab(turretPlantPrefab, pos, rot, instData);
+
+        // If locally instantiated (Photon fallback or offline preview), initialize and align it explicitly
+        if (go != null && !PhotonNetwork.InRoom)
+        {
+            var st = go.GetComponent<SporewardTurret>();
+            if (st != null)
+            {
+                st.InitializeFromSpawner(ownerActor, this.gameObject, 50); // hp=50
+                // align to the surface precisely (PlaceOnSurface added to SporewardTurret)
+                st.PlaceOnSurface(hit, parentToSurface: false);
+            }
+        }
+
+        return true; // success
+    }
+
+    // Returns true on successful placement & spawn, false if validation/aim failed.
+    private bool Ability_Ivy_Thornveil()
+    {
+        // center ray from camera; fallback to player forward
+        Ray center = (GetCameraOrDefault())?.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f)) ?? new Ray(transform.position, transform.forward);
+
+        // RaycastAll and choose first non-ignored hit
+        RaycastHit[] hits = Physics.RaycastAll(center, 100f);
+        if (hits == null || hits.Length == 0)
+        {
+            ShowErrorMessage("Must aim at ground!");
+            return false;
+        }
+
+        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        RaycastHit? chosen = null;
+        foreach (var h in hits)
+        {
+            if (IsIgnoredPlacementTag(h.collider)) continue;
+            chosen = h;
+            break;
+        }
+
+        if (!chosen.HasValue)
+        {
+            ShowErrorMessage("Must aim at ground!");
+            return false;
+        }
+
+        var hit = chosen.Value;
+
+        // Require ground tag
+        if (!hit.collider.CompareTag("Ground"))
+        {
+            ShowErrorMessage("Must aim at ground!");
+            return false;
+        }
+
+        // Place wall slightly above the hit point
+        Vector3 pos = hit.point + hit.normal * 0.01f;
+
+        // Compute forward projected onto the surface plane so the wall stands upright and faces roughly the camera/player
+        Camera cam = GetCameraOrDefault();
+        Vector3 forward = (cam != null) ? cam.transform.forward : transform.forward;
+        Vector3 forwardOnPlane = Vector3.ProjectOnPlane(forward, hit.normal).normalized;
+        if (forwardOnPlane.sqrMagnitude < 0.001f) forwardOnPlane = transform.forward; // fallback
+
+        Quaternion rot = Quaternion.LookRotation(forwardOnPlane, hit.normal);
+
+        int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
+            ? PhotonNetwork.LocalPlayer.ActorNumber
+            : -1;
+
         object[] instData = new object[] { ownerActor, 300 }; // HP = 300 for Thornveil
 
         GameObject go = SpawnPrefab(plantWallPrefab, pos, rot, instData);
@@ -405,34 +517,107 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
         {
             var tw = go.GetComponent<ThornveilWall>();
             if (tw != null)
+            {
                 tw.InitializeFromSpawner(ownerActor, this.gameObject, 300); // hp=300
+                // Align to actual hit surface
+                tw.PlaceOnGround(hit, parentToSurface: false);
+            }
         }
 
-        DestroyIfLocal(go, thornveilDuration); // optional life cap (you already have thornveilDuration)
+        DestroyIfLocal(go, thornveilDuration);
+
+        return true; // success
     }
 
     // -------- REGALIA --------
-    private void Ability_Regalia_DownwardDecree()
+    // DownwardDecree now returns bool: true if beacon was placed (valid ground), false if invalid aim
+    private bool Ability_Regalia_DownwardDecree()
     {
-        // Throw a beacon/marker that after downwardDelay spawns a cannonball which deals damage in AoE.
+        // center ray from camera; fallback to player forward
         Ray center = (GetCameraOrDefault())?.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f)) ?? new Ray(transform.position, transform.forward);
-        Vector3 pos;
-        if (Physics.Raycast(center, out RaycastHit hit, 100f))
-            pos = hit.point;
-        else
-            pos = center.origin + center.direction * 20f;
 
-        GameObject beacon = SpawnPrefab(beaconPrefab != null ? beaconPrefab : new GameObject("Beacon"), pos, Quaternion.identity);
-        StartCoroutine(DelayedCannonball(pos, downwardDelay));
-        DestroyIfLocal(beacon, downwardDelay + 0.5f);
+        // RaycastAll and choose first non-ignored hit
+        RaycastHit[] hits = Physics.RaycastAll(center, 100f);
+        if (hits == null || hits.Length == 0)
+        {
+            ShowErrorMessage("Must aim at ground!");
+            return false;
+        }
+
+        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        RaycastHit? chosen = null;
+        foreach (var h in hits)
+        {
+            if (IsIgnoredPlacementTag(h.collider)) continue;
+            chosen = h;
+            break;
+        }
+
+        if (!chosen.HasValue)
+        {
+            ShowErrorMessage("Must aim at ground!");
+            return false;
+        }
+
+        var hit = chosen.Value;
+
+        // hard-coded requirement: Ground tag
+        if (!hit.collider.CompareTag("Ground"))
+        {
+            ShowErrorMessage("Must aim at ground!");
+            return false;
+        }
+
+        Vector3 pos = hit.point;
+
+        int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
+            ? PhotonNetwork.LocalPlayer.ActorNumber
+            : -1;
+
+        // We pass: [0] ownerActor (int), [1] cannonballPrefabName (string), [2] damage (float), [3] radius (float), [4] delay (float)
+        string cbName = cannonballPrefab != null ? cannonballPrefab.name : "";
+        object[] instData = new object[] { ownerActor, cbName, downwardDamage, 2.5f, downwardDelay };
+
+        GameObject beacon = SpawnPrefab(beaconPrefab != null ? beaconPrefab : new GameObject("Beacon"), pos, Quaternion.identity, instData);
+
+        // locally initialize if Photon wasn't used
+        if (beacon != null && !PhotonNetwork.InRoom)
+        {
+            var b = beacon.GetComponent<Beacon>();
+            if (b != null)
+                b.InitializeFromSpawner(ownerActor, cbName, downwardDamage, 2.5f, downwardDelay);
+        }
+
+        // keep a small life so stray beacons don't persist in local preview mode
+        DestroyIfLocal(beacon, downwardDelay + 5f);
+
+        return true;
     }
 
     private void Ability_Regalia_RoyalBrigand()
     {
-        // Summon a guard in front of the player that blocks enemy fire (you'll need guard script to implement blocking)
-        Vector3 spawn = transform.position + transform.forward * 1.5f + Vector3.up * 0.25f;
+        // Summon a guard in front of the player that blocks enemy fire.
+        Vector3 spawn = transform.position + transform.forward * 3f + Vector3.up * 0.25f;
         Quaternion rot = Quaternion.LookRotation(transform.forward);
-        GameObject guard = SpawnPrefab(guardPrefab, spawn, rot);
+
+        int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
+            ? PhotonNetwork.LocalPlayer.ActorNumber
+            : -1;
+
+        // pass owner and hp to the guard via instantiationData: [0] ownerActor (int), [1] hp (int)
+        object[] instData = new object[] { ownerActor, 150 }; // guard HP default 150 (adjust as needed)
+
+        GameObject guard = SpawnPrefab(guardPrefab, spawn, rot, instData);
+
+        // initialize locally if Photon isn't being used
+        if (guard != null && !PhotonNetwork.InRoom)
+        {
+            var gb = guard.GetComponent<GuardBehavior>();
+            if (gb != null)
+                gb.InitializeFromSpawner(ownerActor, this.gameObject, 150);
+        }
+
         DestroyIfLocal(guard, 12f); // default lifetime
     }
 
@@ -530,13 +715,21 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
         gameObject.SendMessage("RemoveInvulnerability", SendMessageOptions.DontRequireReceiver);
     }
 
-    private void ApplyAOEAction(Vector3 center, float radius, Action<Collider> action)
+    private void ApplyAOEAction(Vector3 center, float radius, Action<Collider> action, int ownerActor = -1, GameObject ownerGameObject = null)
     {
         var cols = Physics.OverlapSphere(center, radius);
         foreach (var c in cols)
         {
-            // skip self
+            // skip self (the player object owning this CharacterSkills)
             if (c.gameObject == gameObject) continue;
+
+            // skip owner's own objects
+            if (ownerActor >= 0 || ownerGameObject != null)
+            {
+                if (DamageUtils.IsSameOwner(c.gameObject, ownerActor, ownerGameObject))
+                    continue;
+            }
+
             try { action?.Invoke(c); } catch { }
         }
     }
@@ -574,8 +767,6 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     /// Spawns a prefab using Photon if in a room. Prefab must be in Resources/ for PhotonNetwork.Instantiate.
     /// If prefab is null, returns null.
     /// </summary>
-    // replace old SpawnPrefab with this
-    // in CharacterSkills (or wherever SpawnPrefab lives)
     private GameObject SpawnPrefab(GameObject prefab, Vector3 pos, Quaternion rot, object[] instantiationData = null)
     {
         if (prefab == null) return null;
@@ -635,6 +826,71 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
             UpdateChargeBar();
         }
     }
+    /// <summary>
+    /// Returns true if this collider's tag is in the placementIgnoredTags list.
+    /// Treats null collider as ignored.
+    /// </summary>
+    private bool IsIgnoredPlacementTag(Collider col)
+    {
+        if (col == null) return true;
+        if (placementIgnoredTags == null || placementIgnoredTags.Length == 0) return false;
+
+        // compare tags (fast). skip empty entries in the list.
+        foreach (var t in placementIgnoredTags)
+        {
+            if (string.IsNullOrEmpty(t)) continue;
+            if (col.CompareTag(t)) return true;
+        }
+        return false;
+    }
+
+
+    private Coroutine errorCoroutine;
+
+    /// <summary>
+    /// Show a short error message using the assigned TMP. Fades in, waits, fades out.
+    /// </summary>
+    public void ShowErrorMessage(string message, float visibleDuration = 1.2f, float fadeIn = 0.12f, float fadeOut = 0.25f)
+    {
+        if (errorMessageText == null) return;
+        if (errorCoroutine != null) StopCoroutine(errorCoroutine);
+        errorCoroutine = StartCoroutine(ShowErrorCoroutine(message, visibleDuration, fadeIn, fadeOut));
+    }
+
+    private IEnumerator ShowErrorCoroutine(string message, float visibleDuration, float fadeIn, float fadeOut)
+    {
+        var tmp = errorMessageText;
+        Color c = tmp.color;
+        tmp.text = message;
+
+        // fade in
+        float t = 0f;
+        while (t < fadeIn)
+        {
+            t += Time.deltaTime;
+            c.a = Mathf.Lerp(0f, 1f, t / Mathf.Max(0.0001f, fadeIn));
+            tmp.color = c;
+            yield return null;
+        }
+        c.a = 1f; tmp.color = c;
+
+        // hold
+        yield return new WaitForSeconds(visibleDuration);
+
+        // fade out
+        t = 0f;
+        while (t < fadeOut)
+        {
+            t += Time.deltaTime;
+            c.a = Mathf.Lerp(1f, 0f, t / Mathf.Max(0.0001f, fadeOut));
+            tmp.color = c;
+            yield return null;
+        }
+        c.a = 0f; tmp.color = c;
+        tmp.text = string.Empty;
+        errorCoroutine = null;
+    }
+
     #endregion
 
     // Public API
