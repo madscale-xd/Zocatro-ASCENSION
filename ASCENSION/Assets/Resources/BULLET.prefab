@@ -122,6 +122,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7bc3413efdc2491499960f281bd7ecb7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  ownerActorNumber: -1
+  headshotMultiplier: 3
+  outgoingDamageMultiplier: 1
+  ignoreBodyHits: 0
+  bulletSpeed: 40
 --- !u!114 &1695157585800304141
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -178,7 +183,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aa584fbee541324448dd18d8409c7a41, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  ObservedComponentsFoldoutOpen: 1
+  ObservedComponentsFoldoutOpen: 0
   Group: 0
   prefixField: -1
   Synchronization: 3

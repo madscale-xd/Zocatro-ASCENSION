@@ -152,6 +152,7 @@ MonoBehaviour:
   lifetime: 3
   damage: 50
   ownerActorNumber: -1
+  explodeRadius: 2.5
   smokePrefab: {fileID: 7539247010639306655, guid: 41107063f43ffde48888fe4882bc65d2, type: 3}
   smokeInterval: 0.25
   smokeDuration: 5

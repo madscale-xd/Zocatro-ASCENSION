@@ -481,17 +481,13 @@ MonoBehaviour:
   bulletPrefab: {fileID: 2977847392404456608, guid: 98947bae8566f0d47bb4b47fe4d39c0b, type: 3}
   spawnPoint: {fileID: 0}
   ammoText: {fileID: 4079283964324141713}
-  bulletSpeed: 80
+  bulletSpeed: 30
   fireRate: 0.1
   bulletLifetime: 5
-  ignoreOwnerCollision: 1
-  ignoreCollisionDuration: 0.12
   maxAmmo: 25
   autoReloadOnEmpty: 1
   reloadTime: 1.5
   reloadKey: 114
-  usePooling: 1
-  poolSize: 20
   defaultHeadshotMultiplier: 3
   defaultOutgoingDamageMultiplier: 1
   defaultIgnoreBodyHits: 0
