@@ -64,6 +64,10 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
 
     // store original fireRate so we can apply multipliers safely (prevent stacking)
     private float originalFireRate = -1f;
+    [Header("Networked bullets")]
+    [Tooltip("When true and in a Photon room, bullets are created via PhotonNetwork.Instantiate (prefab must be in Resources/ and have a PhotonView).")]
+    public bool networkBullets = true;
+
 
     void Awake()
     {
@@ -276,6 +280,91 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             aimDirection = (targetPoint - originPos).normalized;
         }
 
+        // --- NETWORKED BULLET PATH (preferred when in Photon room) ---
+        if (PhotonNetwork.InRoom /* && networkBullets toggle if you have one */)
+        {
+            // Use PhotonNetwork.Instantiate. Prefab must be inside Resources/ and have a PhotonView.
+            string resName = bulletPrefab.name;
+            object[] instData = new object[]
+            {
+                myActor,
+                defaultHeadshotMultiplier,
+                defaultOutgoingDamageMultiplier,
+                defaultIgnoreBodyHits
+            };
+
+            GameObject netBullet = null;
+            try
+            {
+                netBullet = PhotonNetwork.Instantiate(resName, originPos + aimDirection * 0.35f, Quaternion.LookRotation(aimDirection), 0, instData);
+                // NOTE: small forward offset (0.35) to reduce spawn overlap with player's colliders
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[SimpleShooter] PhotonNetwork.Instantiate failed for '{resName}': {ex.Message}. Falling back to local spawn.");
+                netBullet = null;
+            }
+
+            if (netBullet != null)
+            {
+                // Ensure Bullet component exists and launch lifetime locally (non-pooled networked bullet).
+                Bullet bcomp = netBullet.GetComponent<Bullet>();
+                if (bcomp == null) bcomp = netBullet.AddComponent<Bullet>();
+
+                // Ensure BulletOwner exists - OnPhotonInstantiate will also parse instantiationData
+                BulletOwner bo = netBullet.GetComponent<BulletOwner>();
+                if (bo == null) bo = netBullet.AddComponent<BulletOwner>();
+                // Set ownerActorNumber locally in case OnPhotonInstantiate hasn't run yet (defensive)
+                bo.ownerActorNumber = myActor;
+
+                // IMPORTANT: prevent immediate collision with the shooter's colliders (same logic as pooled path)
+                Collider bulletCol = netBullet.GetComponent<Collider>();
+                if (bulletCol != null)
+                {
+                    Collider[] ownerCols = GetComponentsInChildren<Collider>(true);
+                    foreach (var c in ownerCols)
+                    {
+                        if (c != null)
+                        {
+                            Physics.IgnoreCollision(bulletCol, c, true);
+                        }
+                    }
+
+                    // schedule re-enable after ignoreCollisionDuration on the owner client
+                    StartCoroutine(ReenableCollisionsAfter(netBullet, bulletCol, ownerCols, ignoreCollisionDuration));
+                }
+
+                // Rigidbody and velocity (owner sets initial velocity)
+                Rigidbody rb = netBullet.GetComponent<Rigidbody>();
+                if (rb == null) rb = netBullet.AddComponent<Rigidbody>();
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+                rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+                rb.interpolation = RigidbodyInterpolation.Interpolate;
+
+                rb.velocity = aimDirection * bulletSpeed;
+
+                // Launch lifetime (networked bullets: not pooled)
+                bcomp.Launch(bulletLifetime, false);
+
+                // --- Devil self-damage on shot (owner-local) ---
+                if (defaultSelfDamagePerShot > 0)
+                {
+                    PlayerHealth ph = GetComponentInParent<PlayerHealth>();
+                    if (ph != null)
+                    {
+                        ph.TakeDamage(defaultSelfDamagePerShot, false);
+                        Debug.Log($"[SimpleShooter] Devil self-damage applied: {defaultSelfDamagePerShot}");
+                    }
+                }
+
+                return; // done — networked bullet spawned and configured
+            }
+
+            // If network instantiate failed, fall through to pooled/local path below
+        }
+
+        // --- FALLBACK: local pooled / non-networked bullet path (your existing code) ---
         bool isPooled;
         GameObject bullet = GetBulletFromPoolOrNew(out isPooled);
         if (bullet == null)
@@ -295,39 +384,39 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             bulletComp = bullet.AddComponent<Bullet>();
 
         // Assign bullet owner and metadata BEFORE activating the bullet so friendly-fire checks are valid immediately
-        BulletOwner bo = bullet.GetComponent<BulletOwner>();
-        if (bo == null) bo = bullet.AddComponent<BulletOwner>();
-        bo.ownerActorNumber = myActor;
+        BulletOwner boLocal = bullet.GetComponent<BulletOwner>();
+        if (boLocal == null) boLocal = bullet.AddComponent<BulletOwner>();
+        boLocal.ownerActorNumber = myActor;
 
         // --- APPLY CURRENT DEFAULT METADATA to the bullet ---
-        bo.headshotMultiplier = defaultHeadshotMultiplier;
-        bo.outgoingDamageMultiplier = defaultOutgoingDamageMultiplier;
-        bo.ignoreBodyHits = defaultIgnoreBodyHits;
+        boLocal.headshotMultiplier = defaultHeadshotMultiplier;
+        boLocal.outgoingDamageMultiplier = defaultOutgoingDamageMultiplier;
+        boLocal.ignoreBodyHits = defaultIgnoreBodyHits;
         // ----------------------------------------------------
 
-        Rigidbody rb = bullet.GetComponent<Rigidbody>();
-        if (rb == null) rb = bullet.AddComponent<Rigidbody>();
-        rb.velocity = Vector3.zero;
-        rb.angularVelocity = Vector3.zero;
-        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        Rigidbody rbLocal = bullet.GetComponent<Rigidbody>();
+        if (rbLocal == null) rbLocal = bullet.AddComponent<Rigidbody>();
+        rbLocal.velocity = Vector3.zero;
+        rbLocal.angularVelocity = Vector3.zero;
+        rbLocal.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+        rbLocal.interpolation = RigidbodyInterpolation.Interpolate;
 
         if (ignoreOwnerCollision)
         {
-            Collider bulletCol = bullet.GetComponent<Collider>();
-            if (bulletCol != null)
+            Collider bulletColLocal = bullet.GetComponent<Collider>();
+            if (bulletColLocal != null)
             {
-                Collider[] ownerCols = GetComponentsInChildren<Collider>(true);
-                foreach (var c in ownerCols)
+                Collider[] ownerColsLocal = GetComponentsInChildren<Collider>(true);
+                foreach (var c in ownerColsLocal)
                 {
-                    if (c != null) Physics.IgnoreCollision(bulletCol, c, true);
+                    if (c != null) Physics.IgnoreCollision(bulletColLocal, c, true);
                 }
-                StartCoroutine(ReenableCollisionsAfter(bullet, bulletCol, ownerCols, ignoreCollisionDuration));
+                StartCoroutine(ReenableCollisionsAfter(bullet, bulletColLocal, ownerColsLocal, ignoreCollisionDuration));
             }
         }
 
         bullet.SetActive(true);
-        rb.velocity = aimDirection * bulletSpeed;
+        rbLocal.velocity = aimDirection * bulletSpeed;
 
         if (bulletComp != null) bulletComp.Launch(bulletLifetime, isPooled);
         else Destroy(bullet, bulletLifetime);

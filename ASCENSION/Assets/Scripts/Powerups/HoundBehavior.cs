@@ -9,7 +9,8 @@ using Photon.Pun;
 /// - Moves forward
 /// - Spawns smoke puffs along its path
 /// - Applies authoritative damage to hit players (via RPC to victim owner)
-/// - Does NOT explode on hit unless explodeOnHit == true
+/// - If explodeOnHit==true: owner-authoritative AoE explosion on contact (no separate collision damage)
+/// - If explodeOnHit==false: single-target collision damage as before (owner handles it to avoid duplicates)
 /// </summary>
 [RequireComponent(typeof(Collider))]
 public class HoundBehaviour : MonoBehaviourPun
@@ -22,6 +23,10 @@ public class HoundBehaviour : MonoBehaviourPun
     public int damage = 50;
     /// <summary>ActorNumber of the player that spawned this hound</summary>
     public int ownerActorNumber = -1;
+
+    [Header("Explosion (when explodeOnHit == true)")]
+    [Tooltip("If explodeOnHit == true, AoE radius used for explosion damage.")]
+    public float explodeRadius = 2.5f;
 
     [Header("Smoke trail")]
     public GameObject smokePrefab;
@@ -95,6 +100,7 @@ public class HoundBehaviour : MonoBehaviourPun
                 }
                 if (data.Length >= 6) smokeDuration = Convert.ToSingle(data[5]);
                 if (data.Length >= 7) smokeInterval = Convert.ToSingle(data[6]);
+                if (data.Length >= 8) explodeRadius = Convert.ToSingle(data[7]);
             }
             catch (Exception ex)
             {
@@ -177,6 +183,10 @@ public class HoundBehaviour : MonoBehaviourPun
         if (exploded) return;
         if (col == null) return;
 
+        // Only the network owner of this hound should process collision/explosion in a networked room
+        if (PhotonNetwork.InRoom && photonView != null && !photonView.IsMine)
+            return;
+
         GameObject otherGo = col.gameObject;
         if (otherGo == null) return;
 
@@ -188,9 +198,18 @@ public class HoundBehaviour : MonoBehaviourPun
                 otherPvCheck.Owner.ActorNumber == ownerActorNumber) return;
         }
 
+        // If configured to explode on hit: apply owner-authoritative AoE and destroy (no per-collision single-target damage)
+        if (explodeOnHit)
+        {
+            // Owner already validated above (only owner executes)
+            ExplodeApplyDamage(transform.position);
+            ExplodeToSmoke();
+            return;
+        }
+
+        // Non-exploding behavior -> single-target damage on contact (owner processes it to avoid duplicate RPCs)
         bool appliedDamage = false;
 
-        // networked target? prefer PlayerHealth + PhotonView owner RPC
         var targetPv = otherGo.GetComponentInParent<PhotonView>();
         var ph = otherGo.GetComponentInParent<PlayerHealth>();
 
@@ -246,9 +265,10 @@ public class HoundBehaviour : MonoBehaviourPun
         if (appliedDamage)
         {
             hitCount++;
-            // Explode only if explicitly configured to do so
+            // If exploding is desired after a number of hits, explode now
             if (explodeOnHit && (maxPierce < 0 || hitCount >= maxPierce))
             {
+                ExplodeApplyDamage(transform.position);
                 ExplodeToSmoke();
                 return;
             }
@@ -261,6 +281,74 @@ public class HoundBehaviour : MonoBehaviourPun
     {
         if (exploded) return;
         ExplodeToSmoke();
+    }
+
+    /// <summary>
+    /// Owner-authoritative AoE damage application for explosion.
+    /// Sends RPCs to victim owners where possible, or calls local TakeDamage on local PlayerHealth.
+    /// </summary>
+    private void ExplodeApplyDamage(Vector3 center)
+    {
+        // Owner-only: ensure only the owner does explosion logic (avoid duplicates).
+        if (PhotonNetwork.InRoom && photonView != null && !photonView.IsMine)
+            return;
+
+        var cols = Physics.OverlapSphere(center, explodeRadius);
+        foreach (var c in cols)
+        {
+            if (c == null) continue;
+            var targetGo = c.gameObject;
+
+            // skip self
+            if (targetGo == gameObject) continue;
+
+            var targetPv = targetGo.GetComponentInParent<PhotonView>();
+            var ph = targetGo.GetComponentInParent<PlayerHealth>();
+
+            if (ph == null && targetPv != null)
+            {
+                // try to find PlayerHealth in parent if initial collider belonged to child
+                ph = targetPv.GetComponentInParent<PlayerHealth>();
+            }
+
+            if (targetPv != null && targetPv.Owner != null && ph != null)
+            {
+                int actorNum = targetPv.Owner.ActorNumber;
+
+                // skip owner
+                if (ownerActorNumber >= 0 && actorNum == ownerActorNumber) continue;
+
+                if (!damagedActorNumbers.Contains(actorNum))
+                {
+                    try
+                    {
+                        targetPv.RPC("RPC_TakeDamage", targetPv.Owner, damage, false, ownerActorNumber);
+                        Debug.Log($"[HoundBehaviour] Explosion RPC_TakeDamage -> actor {actorNum} (attacker {ownerActorNumber}).");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogWarning("[HoundBehaviour] Explosion RPC failed, applying locally: " + ex);
+                        ph.TakeDamage(damage, false);
+                    }
+                    damagedActorNumbers.Add(actorNum);
+                }
+            }
+            else if (ph != null)
+            {
+                // local-only player
+                int id = ph.gameObject.GetInstanceID();
+                // skip ownerGameObject if present
+                var oe = GetComponent<OwnedEntity>();
+                if (oe != null && oe.ownerGameObject != null && oe.ownerGameObject == ph.gameObject)
+                    continue;
+
+                if (!damagedInstanceIds.Contains(id))
+                {
+                    ph.TakeDamage(damage, false);
+                    damagedInstanceIds.Add(id);
+                }
+            }
+        }
     }
 
     void ExplodeToSmoke()
@@ -296,19 +384,29 @@ public class HoundBehaviour : MonoBehaviourPun
     {
         if (smokePrefab == null) return;
 
+        // Data we want all clients to receive (owner, duration, damagePerTick, tickInterval)
+        object[] instData = new object[] { ownerActorNumber, smokeDuration, /*damage*/ 0, /*tickInterval*/ smokeInterval };
+
         if (networkSmoke && PhotonNetwork.InRoom)
         {
             try
             {
-                var s = PhotonNetwork.Instantiate(smokePrefab.name, pos, Quaternion.identity, 0);
+                // Prefab must be in Resources/ for Photon
+                var s = PhotonNetwork.Instantiate(smokePrefab.name, pos, Quaternion.identity, 0, instData);
+                // local initialization (best-effort)
                 var sa = s.GetComponent<SmokeArea>();
-                if (sa != null) sa.duration = smokeDuration;
+                if (sa != null)
+                {
+                    sa.duration = smokeDuration;
+                    sa.Initialize();
+                }
             }
             catch
             {
                 var s = Instantiate(smokePrefab, pos, Quaternion.identity);
                 var sa = s.GetComponent<SmokeArea>();
-                if (sa != null) sa.duration = smokeDuration;
+                if (sa != null) { sa.duration = smokeDuration; sa.Initialize(); }
+                else Destroy(s, smokeDuration);
             }
         }
         else

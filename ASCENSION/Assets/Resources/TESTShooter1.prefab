@@ -497,6 +497,7 @@ MonoBehaviour:
   defaultIgnoreBodyHits: 0
   defaultLifestealPercent: 0
   defaultSelfDamagePerShot: 0
+  networkBullets: 1
 --- !u!114 &1876815963787415059
 MonoBehaviour:
   m_ObjectHideFlags: 0

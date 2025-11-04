@@ -147,7 +147,7 @@ MonoBehaviour:
   detectionRadius: 4
   fireRate: 1
   damage: 12
-  projectilePrefab: {fileID: 2977847392404456608, guid: 98947bae8566f0d47bb4b47fe4d39c0b, type: 3}
+  projectilePrefab: {fileID: 2977847392404456608, guid: 9f970437f7d307e47876a924fe3e0ff8, type: 3}
   projectileSpeed: 24
   applyHitscanIfNoProjectile: 0
   aimHeightOffset: 1.1
@@ -224,8 +224,8 @@ Transform:
   m_GameObject: {fileID: 5311009192305653690}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.00000036881, y: -0.000000112, z: -0.00000036881}
-  m_LocalScale: {x: 18.935648, y: 18.935648, z: 18.935648}
+  m_LocalPosition: {x: 2.103e-12, y: -0.000000112, z: -0.0000001844}
+  m_LocalScale: {x: 38.280163, y: 38.280163, z: 38.280163}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 4106012286128579351}

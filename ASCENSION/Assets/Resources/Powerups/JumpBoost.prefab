@@ -52,6 +52,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: JumpBoost
       objectReference: {fileID: 0}
+    - target: {fileID: 2977847392404456608, guid: 19527709d91286f45944b2fbe8380e91, type: 3}
+      propertyPath: m_TagString
+      value: Untagged
+      objectReference: {fileID: 0}
     - target: {fileID: 5395195275808667804, guid: 19527709d91286f45944b2fbe8380e91, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 

@@ -52,6 +52,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Speedboost
       objectReference: {fileID: 0}
+    - target: {fileID: 2977847392404456608, guid: 19527709d91286f45944b2fbe8380e91, type: 3}
+      propertyPath: m_TagString
+      value: Untagged
+      objectReference: {fileID: 0}
     - target: {fileID: 7957891837961837158, guid: 19527709d91286f45944b2fbe8380e91, type: 3}
       propertyPath: m_Radius
       value: 0.5930053

@@ -57,6 +57,17 @@ public class Bullet : MonoBehaviour
         if (rb != null)
             rb.velocity = Vector3.zero;
 
+        // If this bullet is a PhotonNetworked object:
+        var pv = GetComponent<Photon.Pun.PhotonView>();
+        if (pv != null && Photon.Pun.PhotonNetwork.InRoom)
+        {
+            if (pv.IsMine)
+            {
+                try { Photon.Pun.PhotonNetwork.Destroy(pv.gameObject); return; }
+                catch { /* fallback below */ }
+            }
+        }
+
         if (IsPooled)
             gameObject.SetActive(false);
         else

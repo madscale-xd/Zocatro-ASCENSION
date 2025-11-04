@@ -21,7 +21,7 @@ public class SporewardTurret : MonoBehaviourPunCallbacks
     public float detectionRadius = 4f;
     public float fireRate = 1f; // shots per second
     public float damage = 12f;
-    public GameObject projectilePrefab; // optional visual projectile
+    public GameObject projectilePrefab; // optional visual projectile (must be in Resources/ to Photon instantiate)
     public float projectileSpeed = 18f;
     public bool applyHitscanIfNoProjectile = true;
 
@@ -194,39 +194,59 @@ public class SporewardTurret : MonoBehaviourPunCallbacks
                 {
                     // spawn projectile from a muzzle point and aim toward aimPoint
                     Vector3 spawnPos = transform.TransformPoint(muzzleLocalOffset);
-                    Vector3 dir = (aimPoint - spawnPos).normalized;
+                    Quaternion rot = Quaternion.LookRotation((aimPoint - spawnPos).normalized);
+                    Vector3 dir = rot * Vector3.forward;
 
                     GameObject p = null;
-                    try
-                    {
-                        p = Instantiate(projectilePrefab, spawnPos, Quaternion.LookRotation(dir));
-                    }
-                    catch
-                    {
-                        // fallback safety
-                        p = Instantiate(projectilePrefab, spawnPos, Quaternion.identity);
-                        p.transform.rotation = Quaternion.LookRotation(dir);
-                    }
 
-                    // set velocity if Rigidbody present
-                    var rb = p.GetComponent<Rigidbody>();
-                    if (rb != null) rb.velocity = dir * projectileSpeed;
+                    // prepare instantiationData for networked projectile (ownerActor, damage, speed)
+                    object[] instData = new object[] { ownerActor, (float)damage, projectileSpeed };
 
-                    // ensure turret's own colliders don't block the projectile
-                    IgnoreProjectileWithTurret(p);
-
-                    // If projectile has OwnedEntity or expects owner data, initialize it
-                    var oe = p.GetComponent<OwnedEntity>();
-                    if (oe != null)
-                        oe.InitializeFromSpawner(ownerActor, ownerObject);
-                    // If projectile has a simple script expecting InitializeFromSpawner, try to call it (reflection-safe)
-                    var init = p.GetComponent<MonoBehaviour>();
-                    if (init != null)
+                    if (PhotonNetwork.InRoom)
                     {
-                        var m = init.GetType().GetMethod("InitializeFromSpawner");
-                        if (m != null)
+                        // try Photon instantiate (prefab must be in Resources/ and have a PhotonView)
+                        try
                         {
-                            try { m.Invoke(init, new object[] { ownerActor, ownerObject, Mathf.RoundToInt(damage) }); } catch { }
+                            p = PhotonNetwork.Instantiate(projectilePrefab.name, spawnPos, rot, 0, instData);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning($"SporewardTurret: Photon.Instantiate failed for '{projectilePrefab.name}': {ex.Message}. Falling back to local Instantiate.");
+                            p = Instantiate(projectilePrefab, spawnPos, rot);
+                        }
+                    }
+                    else
+                    {
+                        // offline/local fallback
+                        try { p = Instantiate(projectilePrefab, spawnPos, rot); } catch { p = null; }
+                    }
+
+                    if (p != null)
+                    {
+                        // set velocity if Rigidbody present
+                        var rb = p.GetComponent<Rigidbody>();
+                        if (rb != null)
+                            rb.velocity = dir.normalized * projectileSpeed;
+
+                        // ensure turret's own colliders don't block the projectile
+                        IgnoreProjectileWithTurret(p);
+
+                        // If projectile has OwnedEntity or expects owner data, initialize it
+                        var oe = p.GetComponent<OwnedEntity>();
+                        if (oe != null)
+                        {
+                            try { oe.InitializeFromSpawner(ownerActor, ownerObject); } catch { }
+                        }
+
+                        // If projectile has a simple script expecting InitializeFromSpawner, try to call it (reflection-safe)
+                        var mono = p.GetComponent<MonoBehaviour>();
+                        if (mono != null)
+                        {
+                            var m = mono.GetType().GetMethod("InitializeFromSpawner");
+                            if (m != null)
+                            {
+                                try { m.Invoke(mono, new object[] { ownerActor, ownerObject, Mathf.RoundToInt(damage) }); } catch { }
+                            }
                         }
                     }
                 }

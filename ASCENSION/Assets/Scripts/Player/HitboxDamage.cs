@@ -121,22 +121,40 @@ public class HitboxDamage : MonoBehaviour
         CleanupBullet(other, bulletComp);
     }
 
-    void CleanupBullet(Collider bulletCollider, Bullet bulletComp = null)
-    {
-        if (bulletCollider == null) return;
-
-        if (bulletComp == null)
-            bulletComp = bulletCollider.GetComponentInParent<Bullet>();
-
-        if (bulletComp != null && bulletComp.IsPooled)
+        void CleanupBullet(Collider bulletCollider, Bullet bulletComp = null)
         {
-            // returned to pool
-            bulletComp.Deactivate();
-            return;
-        }
+            if (bulletCollider == null) return;
 
-        // Non-pooled bullet or unknown: destroy the root bullet GameObject
-        GameObject root = bulletCollider.transform.root.gameObject;
-        Destroy(root);
-    }
+            if (bulletComp == null)
+                bulletComp = bulletCollider.GetComponentInParent<Bullet>();
+
+            // If the bullet is pooled (local), return to pool
+            if (bulletComp != null && bulletComp.IsPooled)
+            {
+                bulletComp.Deactivate();
+                return;
+            }
+
+            // If the projectile has a PhotonView (networked), destroy it via Photon
+            PhotonView pv = bulletCollider.GetComponentInParent<PhotonView>();
+            if (pv != null && PhotonNetwork.InRoom)
+            {
+                // Only the owner should call PhotonNetwork.Destroy; otherwise, request owner to destroy via RPC.
+                if (pv.IsMine)
+                {
+                    try { PhotonNetwork.Destroy(pv.gameObject); }
+                    catch { if (pv.gameObject != null) Destroy(pv.gameObject); }
+                }
+                else
+                {
+                    // If not ours, try a safe local destroy fallback (won't remove networked object on others)
+                    try { Destroy(pv.gameObject); } catch { }
+                }
+                return;
+            }
+
+            // Non-pooled & non-networked: normal destroy
+            GameObject root = bulletCollider.transform.root.gameObject;
+            Destroy(root);
+        }
 }
