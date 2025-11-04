@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 680793622250991551}
   - component: {fileID: 6563596073810102741}
   - component: {fileID: 7528304464799915007}
+  - component: {fileID: 5514233096743973980}
   m_Layer: 0
   m_Name: MayhemSmoke
   m_TagString: Untagged
@@ -121,3 +122,25 @@ MonoBehaviour:
   duration: 5
   damagePerTick: 0
   tickInterval: 0.5
+--- !u!114 &5514233096743973980
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7539247010639306655}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: aa584fbee541324448dd18d8409c7a41, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ObservedComponentsFoldoutOpen: 1
+  Group: 0
+  prefixField: -1
+  Synchronization: 3
+  OwnershipTransfer: 0
+  observableSearch: 2
+  ObservedComponents: []
+  sceneViewId: 0
+  InstantiationId: 0
+  isRuntimeInstantiated: 0
