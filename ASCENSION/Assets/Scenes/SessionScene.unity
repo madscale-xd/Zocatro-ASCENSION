@@ -1468,6 +1468,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1423409141353371764, guid: 7951bb6dbc153ef409dc38f50ebd9ef4, type: 3}
+      propertyPath: m_SortingOrder
+      value: 2
+      objectReference: {fileID: 0}
     - target: {fileID: 3110919550046457753, guid: 7951bb6dbc153ef409dc38f50ebd9ef4, type: 3}
       propertyPath: m_Name
       value: EXITCANVAS

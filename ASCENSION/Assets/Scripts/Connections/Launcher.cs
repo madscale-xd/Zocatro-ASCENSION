@@ -133,6 +133,7 @@ namespace Com.MyCompany.MyGame
             if (progressLabel != null) progressLabel.SetActive(false);
             if (controlPanel != null) controlPanel.SetActive(true);
             if (lobbyPanel != null) lobbyPanel.SetActive(false);
+            UnlockCursorForLobby();
         }
 
         public override void OnJoinedLobby()
@@ -141,6 +142,7 @@ namespace Com.MyCompany.MyGame
             if (progressLabel != null) progressLabel.SetActive(false);
             if (controlPanel != null) controlPanel.SetActive(false);
             if (lobbyPanel != null) lobbyPanel.SetActive(true);
+            UnlockCursorForLobby();
         }
 
         public override void OnRoomListUpdate(List<RoomInfo> roomList)
@@ -209,6 +211,18 @@ namespace Com.MyCompany.MyGame
             if (progressLabel != null) progressLabel.SetActive(false);
             if (controlPanel != null) controlPanel.SetActive(false);
             if (lobbyPanel != null) lobbyPanel.SetActive(true);
+            UnlockCursorForLobby();
+        }
+
+        // put this inside the Launcher class (near other helpers)
+        private void UnlockCursorForLobby()
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+
+            // Clear any focused UI element so InputField edits are committed and nothing stays "selected".
+            if (EventSystem.current != null)
+                EventSystem.current.SetSelectedGameObject(null);
         }
     }
 }
