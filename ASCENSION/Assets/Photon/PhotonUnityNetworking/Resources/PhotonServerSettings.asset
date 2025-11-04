@@ -53,6 +53,9 @@ MonoBehaviour:
   - RPC_ApplyRoot
   - RPC_StopHealing
   - RPC_RequestDestroy
+  - RPC_AddAmmo
+  - RPC_BroadcastAmmo
+  - RPC_SetAmmo
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1

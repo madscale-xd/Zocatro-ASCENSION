@@ -129,6 +129,13 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
             // capture original width so we can re-scale if image isn't a Filled type
             originalBarWidth = chargeBarRect.sizeDelta.x;
         }
+
+        bool __isOwner = (photonView == null) || !PhotonNetwork.InRoom || photonView.IsMine;
+        if (chargeBarImage != null)
+        {
+            chargeBarImage.gameObject.SetActive(__isOwner);
+        }
+
         UpdateChargeBar();
 
         // ensure error text is initially invisible
@@ -148,6 +155,11 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
         {
             Debug.LogWarning($"CharacterSkills ({characterName}): chargeBarImage is not of type 'Filled'. The script will resize the image width as a fallback. If possible use Image.Type = Filled for simpler behavior.");
         }
+                // Defensive: ensure charge UI remains visible only for owner
+        bool __isOwnerStart = (photonView == null) || !PhotonNetwork.InRoom || photonView.IsMine;
+        if (chargeBarImage != null)
+            chargeBarImage.gameObject.SetActive(__isOwnerStart);
+
     }
 
     void Update()
@@ -219,6 +231,8 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     private void UpdateChargeBar()
     {
         if (chargeBarImage == null) return;
+        // if the UI has been disabled for remote instances, avoid modifying it
+        if (!chargeBarImage.gameObject.activeInHierarchy) return;
 
         float t = (maxCharge <= 0f) ? 0f : Mathf.Clamp01(currentCharge / maxCharge);
 

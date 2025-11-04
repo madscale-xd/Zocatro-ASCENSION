@@ -75,6 +75,11 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
             }
         }
 
+        // hide remote ammo UI so only the owning client sees their ammo
+        if (pv != null && PhotonNetwork.InRoom && !pv.IsMine && ammoText != null)
+        {
+            ammoText.gameObject.SetActive(false);
+        }
         UpdateAmmoUI();
     }
 
@@ -266,6 +271,12 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     void UpdateAmmoUI(bool showReloading = false)
     {
         if (ammoText == null) return;
+
+        // Prevent remote clients from touching the local player's HUD.
+        PhotonView pv = GetComponentInParent<PhotonView>();
+        if (PhotonNetwork.InRoom && pv != null && !pv.IsMine)
+            return;
+
         ammoText.text = showReloading ? "RELOADING..." : $"{currentAmmo} / {maxAmmo}";
     }
 
