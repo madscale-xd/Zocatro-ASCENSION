@@ -611,6 +611,10 @@ MonoBehaviour:
   OnCardAcquired:
     m_PersistentCalls:
       m_Calls: []
+  triad: 
+  triadIndex: 0
+  triadIndices: ffffffffffffffffffffffff
+  deckQueue: 
 --- !u!114 &4417420245621891631
 MonoBehaviour:
   m_ObjectHideFlags: 0

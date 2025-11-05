@@ -1,8 +1,9 @@
-// SessionPlayerSpawner.cs (with wait-for-player-prop fix)
+// SessionPlayerSpawner.cs
 using System.Collections;
 using UnityEngine;
 using Photon.Pun;
 using Photon.Realtime;
+using ExitGames.Client.Photon; // Hashtable
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -27,7 +28,7 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
     [Tooltip("If true, when connected to Photon the spawner will wait up to WaitForPropTimeout seconds for the Photon player property to appear. Otherwise it immediately falls back to PlayerPrefs.")]
     [SerializeField] private bool waitForPhotonPropIfConnected = true;
     [Tooltip("How many seconds to wait for the Photon LocalPlayer custom property before falling back.")]
-    [SerializeField] private float waitForPropTimeout = 1.5f;
+    [SerializeField] private float waitForPropTimeout = 3.0f;
 
     // Instance guard so we don't spawn multiple times if Start + OnJoinedRoom both fire
     private bool hasSpawned = false;
@@ -52,73 +53,138 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
     {
         if (hasSpawned) return;
         if (!PhotonNetwork.InRoom) return;
-
-        // start coroutine to wait for Photon prop (if desired), then spawn
-        if (spawnRoutine != null) StopCoroutine(spawnRoutine);
+        if (spawnRoutine != null) return;
         spawnRoutine = StartCoroutine(SpawnWhenReady());
+    }
+
+    public override void OnPlayerPropertiesUpdate(Player targetPlayer, ExitGames.Client.Photon.Hashtable changedProps)
+    {
+        base.OnPlayerPropertiesUpdate(targetPlayer, changedProps);
+
+        if (targetPlayer == null) return;
+        if (!targetPlayer.IsLocal) return;
+        if (hasSpawned) return;
+
+        if (changedProps.ContainsKey(PhotonKeys.PROP_CHARACTER_INDEX) ||
+            changedProps.ContainsKey(PhotonKeys.PROP_TRIAD) ||
+            changedProps.ContainsKey(PhotonKeys.PROP_CHARACTER_PREFAB))
+        {
+            Debug.Log("SessionPlayerSpawner: Detected local player property update — retrying spawn attempt.");
+            TrySpawnPlayer();
+        }
     }
 
     private IEnumerator SpawnWhenReady()
     {
-        // guard: don't spawn twice
-        if (hasSpawned) yield break;
+        if (hasSpawned)
+        {
+            spawnRoutine = null;
+            yield break;
+        }
 
         int chosenIndex = -1;
         string prefabNameToUse = null;
         GameObject selectedPrefab = null;
 
+        int tri0 = -1, tri1 = -1, tri2 = -1;
+
         bool havePhoton = PhotonNetwork.IsConnected && PhotonNetwork.LocalPlayer != null;
         float waitDeadline = Time.realtimeSinceStartup + waitForPropTimeout;
 
-        // If connected and configured to wait: poll for the player custom property for a short time
         if (havePhoton && waitForPhotonPropIfConnected)
         {
-            bool found = false;
+            bool foundIndex = false;
             while (Time.realtimeSinceStartup <= waitDeadline)
             {
-                if (PhotonNetwork.LocalPlayer.CustomProperties != null &&
-                    PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(SessionPlayerSpawnerCharacterKeys.PROP_CHARACTER_INDEX, out object objIndex))
+                var props = PhotonNetwork.LocalPlayer.CustomProperties;
+                if (props != null && props.TryGetValue(PhotonKeys.PROP_CHARACTER_INDEX, out object objIndex))
                 {
                     if (objIndex is int) chosenIndex = (int)objIndex;
                     else int.TryParse(objIndex?.ToString() ?? "-1", out chosenIndex);
 
-                    found = true;
-                    break;
+                    foundIndex = true;
                 }
 
-                // also accept prefab name if set
-                if (PhotonNetwork.LocalPlayer.CustomProperties != null &&
-                    PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(SessionPlayerSpawnerCharacterKeys.PROP_CHARACTER_PREFAB, out object objPrefab))
+                if (props != null && props.TryGetValue(PhotonKeys.PROP_CHARACTER_PREFAB, out object objPrefab))
                 {
                     prefabNameToUse = objPrefab?.ToString();
-                    // don't break here — prefer index if available
                 }
 
-                yield return null; // wait a frame and try again
+                if (props != null && props.TryGetValue(PhotonKeys.PROP_TRIAD, out object objTriad))
+                {
+                    ParseTriadObject(objTriad, ref tri0, ref tri1, ref tri2);
+                }
+
+                if (foundIndex && (tri0 >= 0 || tri1 >= 0 || tri2 >= 0))
+                    break;
+
+                yield return null;
             }
-            // after waiting, proceed (either found or timed out)
+
+            // final quick read after wait loop
+            if (!foundIndex)
+            {
+                if (PhotonNetwork.LocalPlayer.CustomProperties != null &&
+                    PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(PhotonKeys.PROP_CHARACTER_INDEX, out object objIndex2))
+                {
+                    if (objIndex2 is int) chosenIndex = (int)objIndex2;
+                    else int.TryParse(objIndex2?.ToString() ?? "-1", out chosenIndex);
+                }
+            }
+
+            if ((tri0 < 0 && tri1 < 0 && tri2 < 0) && PhotonNetwork.LocalPlayer.CustomProperties != null &&
+                PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(PhotonKeys.PROP_TRIAD, out object objTriadFinal))
+            {
+                ParseTriadObject(objTriadFinal, ref tri0, ref tri1, ref tri2);
+            }
         }
         else if (havePhoton)
         {
-            // If not waiting, try immediately (no blocking)
             if (PhotonNetwork.LocalPlayer.CustomProperties != null &&
-                PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(SessionPlayerSpawnerCharacterKeys.PROP_CHARACTER_INDEX, out object objIndex))
+                PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(PhotonKeys.PROP_CHARACTER_INDEX, out object objIndex))
             {
                 if (objIndex is int) chosenIndex = (int)objIndex;
                 else int.TryParse(objIndex?.ToString() ?? "-1", out chosenIndex);
             }
             if (PhotonNetwork.LocalPlayer.CustomProperties != null &&
-                PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(SessionPlayerSpawnerCharacterKeys.PROP_CHARACTER_PREFAB, out object objPrefab))
+                PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(PhotonKeys.PROP_CHARACTER_PREFAB, out object objPrefab))
             {
                 prefabNameToUse = objPrefab?.ToString();
+            }
+            if (PhotonNetwork.LocalPlayer.CustomProperties != null &&
+                PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue(PhotonKeys.PROP_TRIAD, out object objTriadImmediate))
+            {
+                ParseTriadObject(objTriadImmediate, ref tri0, ref tri1, ref tri2);
             }
         }
 
         // If we still don't have a chosenIndex, fall back to PlayerPrefs (local machine fallback)
         if (chosenIndex < 0)
         {
-            if (PlayerPrefs.HasKey(SessionPlayerSpawnerCharacterKeys.PROP_CHARACTER_INDEX))
-                chosenIndex = PlayerPrefs.GetInt(SessionPlayerSpawnerCharacterKeys.PROP_CHARACTER_INDEX, -1);
+            if (PlayerPrefs.HasKey(PhotonKeys.PREF_CHARACTER_INDEX))
+                chosenIndex = PlayerPrefs.GetInt(PhotonKeys.PREF_CHARACTER_INDEX, -1);
+        }
+
+        // triad fallback from PlayerPrefs (CSV string)
+        if (PlayerPrefs.HasKey(PhotonKeys.PREF_KEY_TRIAD))
+        {
+            string triCsv = PlayerPrefs.GetString(PhotonKeys.PREF_KEY_TRIAD, null);
+            if (!string.IsNullOrEmpty(triCsv))
+            {
+                var parts = triCsv.Split(',');
+                if (parts.Length >= 1) int.TryParse(parts[0], out tri0);
+                if (parts.Length >= 2) int.TryParse(parts[1], out tri1);
+                if (parts.Length >= 3) int.TryParse(parts[2], out tri2);
+            }
+
+            // If Photon connected and LocalPlayer props lack triad, push PlayerPrefs triad into LocalPlayer props
+            if (havePhoton && PhotonNetwork.LocalPlayer != null &&
+                (PhotonNetwork.LocalPlayer.CustomProperties == null || !PhotonNetwork.LocalPlayer.CustomProperties.ContainsKey(PhotonKeys.PROP_TRIAD)))
+            {
+                object[] triObj = new object[] { tri0, tri1, tri2 };
+                PhotonNetwork.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { PhotonKeys.PROP_TRIAD, triObj } });
+                Debug.Log($"SessionPlayerSpawner: pushed PlayerPrefs triad into LocalPlayer custom props ({tri0},{tri1},{tri2}).");
+            }
         }
 
         // --- Pick the prefab by index (preferred) ---
@@ -149,6 +215,7 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
         if (string.IsNullOrEmpty(prefabNameToUse))
         {
             Debug.LogError("SessionPlayerSpawner: No player prefab assigned and no selection found to spawn.");
+            spawnRoutine = null;
             yield break;
         }
 
@@ -169,11 +236,11 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
             spawnRot = spawnPoints[idx].rotation;
         }
 
-        // Instantiate via Photon and pass the chosenIndex as instantiationData
+        // Instantiate via Photon and pass the chosenIndex and triad indices as instantiationData
         GameObject player = null;
         try
         {
-            object[] instantiationData = new object[] { chosenIndex };
+            object[] instantiationData = new object[] { chosenIndex, tri0, tri1, tri2 };
             player = PhotonNetwork.Instantiate(prefabNameToUse, spawnPos, spawnRot, 0, instantiationData);
         }
         catch (System.Exception ex)
@@ -184,16 +251,52 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
         if (player != null)
         {
             hasSpawned = true;
-            Debug.Log($"SessionPlayerSpawner: Spawned local player '{prefabNameToUse}' with chosenIndex={chosenIndex}.");
+            Debug.Log($"SessionPlayerSpawner: Spawned local player '{prefabNameToUse}' with chosenIndex={chosenIndex} triad=({tri0},{tri1},{tri2}).");
         }
         else
         {
             Debug.LogError($"SessionPlayerSpawner: Failed to instantiate '{prefabNameToUse}'. Ensure the prefab is available to Photon (Resources or PrefabPool).");
         }
+
+        spawnRoutine = null;
+    }
+
+    // Utility: parse triad object from Photon custom properties (supports int[], object[] or comma string)
+    private void ParseTriadObject(object obj, ref int a, ref int b, ref int c)
+    {
+        if (obj == null) return;
+
+        if (obj is int[])
+        {
+            var arr = (int[])obj;
+            if (arr.Length > 0) a = arr.Length > 0 ? arr[0] : -1;
+            if (arr.Length > 1) b = arr.Length > 1 ? arr[1] : -1;
+            if (arr.Length > 2) c = arr.Length > 2 ? arr[2] : -1;
+            return;
+        }
+
+        if (obj is object[])
+        {
+            var oarr = (object[])obj;
+            if (oarr.Length > 0) int.TryParse(oarr[0]?.ToString(), out a);
+            if (oarr.Length > 1) int.TryParse(oarr[1]?.ToString(), out b);
+            if (oarr.Length > 2) int.TryParse(oarr[2]?.ToString(), out c);
+            return;
+        }
+
+        // fallback: try parse comma-separated string
+        var s = obj.ToString();
+        if (!string.IsNullOrEmpty(s))
+        {
+            var parts = s.Split(',');
+            if (parts.Length > 0) int.TryParse(parts[0], out a);
+            if (parts.Length > 1) int.TryParse(parts[1], out b);
+            if (parts.Length > 2) int.TryParse(parts[2], out c);
+            return;
+        }
     }
 
 #if UNITY_EDITOR
-    // Editor-time checks to warn you if assigned prefabs are not in a Resources folder
     private void OnValidate()
     {
         if (prefabPrefabs != null)
