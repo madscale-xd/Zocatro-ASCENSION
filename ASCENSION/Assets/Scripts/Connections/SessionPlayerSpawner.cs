@@ -252,6 +252,8 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
         {
             hasSpawned = true;
             Debug.Log($"SessionPlayerSpawner: Spawned local player '{prefabNameToUse}' with chosenIndex={chosenIndex} triad=({tri0},{tri1},{tri2}).");
+            // Start coroutine to wait for TarotSelection readiness and acquire a single tarot
+            StartCoroutine(AcquireInitialTarotOnLocalPlayer(player, waitForPropTimeout)); // you can tune timeout
         }
         else
         {
@@ -322,4 +324,45 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
         }
     }
 #endif
+    private IEnumerator AcquireInitialTarotOnLocalPlayer(GameObject player, float timeoutSeconds = 1.0f)
+    {
+        if (player == null) yield break;
+
+        // try to find TarotSelection component (owner instance) on the spawned player
+        float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+        TarotSelection ts = null;
+
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            ts = player.GetComponentInChildren<TarotSelection>(true);
+            if (ts != null)
+            {
+                // check whether triad data is present (triadIndices first element >= 0)
+                int[] idx = ts.GetTriadIndices();
+                if (idx != null && (idx.Length >= 1 && idx[0] >= 0 || idx.Length >= 2 && idx[1] >= 0 || idx.Length >= 3 && idx[2] >= 0))
+                    break; // ready
+            }
+            yield return null;
+        }
+
+        // final attempt if not found earlier
+        if (ts == null)
+            ts = player.GetComponentInChildren<TarotSelection>(true);
+
+        if (ts == null)
+        {
+            Debug.LogWarning("[SessionPlayerSpawner] AcquireInitialTarot: no TarotSelection found on spawned player.");
+            yield break;
+        }
+
+        // Acquire exactly one tarot card for the local player
+        if (ts.AcquireNextTarot(out var acquired))
+        {
+            Debug.Log($"[SessionPlayerSpawner] AcquireInitialTarot: Local player acquired {acquired}.");
+        }
+        else
+        {
+            Debug.LogWarning("[SessionPlayerSpawner] AcquireInitialTarot: no tarot could be acquired (triad/deck empty).");
+        }
+    }
 }

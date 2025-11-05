@@ -10,6 +10,10 @@ using Photon.Pun;
 /// TarotSelection - reads triad from PhotonView.InstantiationData (preferred), then falls back
 /// to LocalPlayer custom props, then PlayerPrefs. Owner-only UI flash. Triad-first acquisition, then shuffled deck.
 /// Attach to a component under your player prefab so that the panel is a child and owner-only logic works.
+///
+/// NEW: public GameObject[] TarotCards (length 10) can be assigned in inspector. These GameObjects should be children
+/// of tarotPanel and will be initially deactivated. When a tarot is acquired, the corresponding TarotCards[(int)card]
+/// will be activated (cumulative: previously acquired visuals remain active). This activation is owner-specific.
 /// </summary>
 [DisallowMultipleComponent]
 public class TarotSelection : MonoBehaviour
@@ -45,6 +49,10 @@ public class TarotSelection : MonoBehaviour
     [Tooltip("If true the panel flash coroutine will interrupt / restart when O is pressed repeatedly.")]
     public bool allowInterruptingFlash = true;
 
+    [Header("Tarot visual objects (child GameObjects under tarotPanel)")]
+    [Tooltip("Assign one GameObject (UI/Image/GameObject) per TarotCard index. They will be initially deactivated and toggled when a card is acquired.")]
+    public GameObject[] TarotCards = new GameObject[10];
+
     [Header("Events")]
     public UnityEngine.Events.UnityEvent<TarotCard> OnCardAcquired;
 
@@ -75,6 +83,8 @@ public class TarotSelection : MonoBehaviour
             return;
         }
 
+        // If panel is not a child of this component (i.e., a shared prefab root),
+        // only owner instances create a local clone to avoid visual conflicts.
         bool panelIsChild = tarotPanel.transform.IsChildOf(this.transform);
         if (!panelIsChild)
         {
@@ -86,7 +96,7 @@ public class TarotSelection : MonoBehaviour
             }
             else
             {
-                // Non-owner: do nothing for owner UI
+                // Non-owner instances do not need owner UI; exit early (keeps behavior unchanged)
                 return;
             }
         }
@@ -100,6 +110,17 @@ public class TarotSelection : MonoBehaviour
         panelCanvasGroup.blocksRaycasts = false;
 
         AutoFindTriadImagesIfNeeded();
+        AutoFindTarotCardsIfNeeded();
+
+        // ensure tarot visuals are initially deactivated for owner instance
+        if (isOwnerInstance && TarotCards != null)
+        {
+            for (int i = 0; i < TarotCards.Length; i++)
+            {
+                if (TarotCards[i] != null)
+                    TarotCards[i].SetActive(false);
+            }
+        }
 
         // Defensive: wait a small amount for instantiation data then fallback to other sources
         StartCoroutine(ApplyInstantiationDataOrFallbackRoutine());
@@ -279,8 +300,12 @@ public class TarotSelection : MonoBehaviour
             OnCardAcquired?.Invoke(acquired);
             if (isOwnerInstance)
             {
+                // Activate owner-local gameplay effects
                 if (acquired == TarotCard.Justice) ActivateJusticeOnLocalShooter();
                 else if (acquired == TarotCard.Devil) ActivateDevilOnLocalShooter();
+
+                // Activate the visual for this acquired card (cumulative)
+                ActivateTarotVisualCumulative(acquired);
             }
             return true;
         }
@@ -294,11 +319,49 @@ public class TarotSelection : MonoBehaviour
             {
                 if (acquired == TarotCard.Justice) ActivateJusticeOnLocalShooter();
                 else if (acquired == TarotCard.Devil) ActivateDevilOnLocalShooter();
+
+                // Activate the visual for this acquired card (cumulative)
+                ActivateTarotVisualCumulative(acquired);
             }
             return true;
         }
 
         return false;
+    }
+
+    // -------------------------
+    // Tarot visual activation (cumulative)
+    // -------------------------
+    /// <summary>
+    /// Activates the visual GameObject for 'card' and leaves previously activated visuals intact.
+    /// Does nothing for non-owner instances or if TarotCards not configured.
+    /// </summary>
+    private void ActivateTarotVisualCumulative(TarotCard card)
+    {
+        if (!isOwnerInstance) return;
+        if (TarotCards == null || TarotCards.Length == 0) return;
+
+        int idx = (int)card;
+        if (idx < 0 || idx >= TarotCards.Length) return;
+
+        var go = TarotCards[idx];
+        if (go == null) return;
+
+        // activate this acquired card visual; DO NOT deactivate previously active visuals
+        if (!go.activeSelf)
+            go.SetActive(true);
+    }
+
+    /// <summary>
+    /// Optional helper to reset (deactivate) all tarot visuals. Owner-only.
+    /// </summary>
+    public void ResetTarotVisuals()
+    {
+        if (!isOwnerInstance) return;
+        if (TarotCards == null) return;
+        for (int i = 0; i < TarotCards.Length; i++)
+            if (TarotCards[i] != null)
+                TarotCards[i].SetActive(false);
     }
 
     // -------------------------
@@ -390,6 +453,63 @@ public class TarotSelection : MonoBehaviour
         triadImages = new Image[3];
         for (int i = 0; i < 3 && i < found.Length; i++)
             triadImages[i] = found[i];
+    }
+
+    /// <summary>
+    /// Auto-populate TarotCards[] if not assigned: looks for children under tarotPanel that match enum names,
+    /// otherwise takes first 10 child GameObjects found (order not guaranteed).
+    /// </summary>
+    private void AutoFindTarotCardsIfNeeded()
+    {
+        if (TarotCards != null && TarotCards.Length == Enum.GetNames(typeof(TarotCard)).Length)
+        {
+            bool anyNull = false;
+            for (int i = 0; i < TarotCards.Length; i++) if (TarotCards[i] == null) anyNull = true;
+            if (!anyNull) return; // already fully assigned
+        }
+
+        if (tarotPanel == null) return;
+
+        // Try matching by name
+        var children = tarotPanel.GetComponentsInChildren<Transform>(true);
+        int enumCount = Enum.GetNames(typeof(TarotCard)).Length;
+        GameObject[] foundArr = new GameObject[enumCount];
+
+        for (int i = 0; i < children.Length; i++)
+        {
+            var t = children[i];
+            if (t == tarotPanel.transform) continue;
+            for (int ei = 0; ei < enumCount; ei++)
+            {
+                if (string.Equals(t.name, ((TarotCard)ei).ToString(), StringComparison.OrdinalIgnoreCase))
+                {
+                    foundArr[ei] = t.gameObject;
+                }
+            }
+        }
+
+        // If all found by name, use them. Otherwise, fallback to first N child gameObjects (excluding panel root)
+        bool allFound = true;
+        for (int i = 0; i < enumCount; i++) if (foundArr[i] == null) { allFound = false; break; }
+
+        if (allFound)
+        {
+            TarotCards = foundArr;
+            return;
+        }
+
+        // fallback: collect first N child GameObjects
+        List<GameObject> list = new List<GameObject>();
+        foreach (var t in children)
+        {
+            if (t == tarotPanel.transform) continue;
+            list.Add(t.gameObject);
+            if (list.Count >= enumCount) break;
+        }
+
+        TarotCards = new GameObject[enumCount];
+        for (int i = 0; i < enumCount && i < list.Count; i++)
+            TarotCards[i] = list[i];
     }
 
     private void Shuffle<T>(List<T> list)
