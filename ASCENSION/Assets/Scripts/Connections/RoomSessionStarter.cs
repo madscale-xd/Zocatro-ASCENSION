@@ -1,6 +1,7 @@
 // CompactRoomSessionStarter.cs
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using Photon.Pun;
@@ -9,6 +10,13 @@ using ExitGames.Client.Photon;
 using Hashtable = ExitGames.Client.Photon.Hashtable;
 using TMPro;
 
+/// <summary>
+/// Robust room -> session starter:
+/// - when countdown expires, ask EVERY client to lock their triad locally (RPC),
+/// - wait for all players to report a triad (or timeout),
+/// - then master triggers PhotonNetwork.LoadLevel(sessionSceneName).
+/// Includes diagnostic logs to help trace issues.
+/// </summary>
 public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
 {
     [Header("Scene")]
@@ -33,14 +41,27 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
     [SerializeField] Color hostColor = Color.yellow;
     [SerializeField] Color normalColor = Color.white;
 
+    [Header("Timing / Sync")]
+    [Tooltip("How long (seconds) the master waits for all clients to write their triad before forcing load. Increase if clients are slow.")]
+    public float triadLockTimeout = 3.0f;
+
+    [Tooltip("How long (seconds) to wait between property checks when waiting for all clients to report triad.")]
+    public float triadLockPollInterval = 0.05f;
+
     const string K_START = "session_countdown_start";
     const string K_DUR = "session_countdown_duration";
 
     Coroutine masterWatcher;
     Coroutine uiUpdater;
 
+    // tracking reports (master only)
+    private HashSet<int> triadReportedActors = new HashSet<int>();
+    private object triadReportLock = new object();
+
     void Start()
     {
+        PhotonNetwork.AutomaticallySyncScene = true;
+
         // Button listeners
         if (startSessionButton) startSessionButton.onClick.AddListener(OnStartClicked);
         if (cancelCountdownButton) cancelCountdownButton.onClick.AddListener(OnCancelClicked);
@@ -48,13 +69,11 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
 
         UpdateButtonInteractables();
 
-        // Countdown UI updater
         if (uiUpdater != null) StopCoroutine(uiUpdater);
         uiUpdater = StartCoroutine(CountdownUIUpdater());
 
         if (countdownPanel) countdownPanel.SetActive(false);
 
-        // Init input field
         if (playerNameInput != null)
             playerNameInput.text = PhotonNetwork.NickName;
 
@@ -64,7 +83,6 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
             RefreshPlayerList();
         }
 
-        // Ensure TriadTransferManager exists (so host can call it)
         TriadTransferManager.EnsureInstance();
     }
 
@@ -94,8 +112,6 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
     public void OnCancelClicked()
     {
         if (!PhotonNetwork.InRoom) return;
-
-        // Anyone cancels countdown via RPC
         photonView.RPC(nameof(RPC_CancelCountdown), RpcTarget.All);
     }
 
@@ -106,14 +122,11 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
         string newName = playerNameInput.text.Trim();
         if (string.IsNullOrEmpty(newName)) return;
 
-        // Update room properties (keeps backward compatibility with your existing UI)
         Hashtable props = new Hashtable
         {
             { "playerName_" + PhotonNetwork.LocalPlayer.ActorNumber, newName }
         };
         PhotonNetwork.CurrentRoom.SetCustomProperties(props);
-
-        // Also update local NickName (optional)
         PhotonNetwork.LocalPlayer.NickName = newName;
     }
 
@@ -123,14 +136,12 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
     [PunRPC]
     void RPC_CancelCountdown()
     {
-        // Stop host watcher if master
         if (PhotonNetwork.IsMasterClient && masterWatcher != null)
         {
             StopCoroutine(masterWatcher);
             masterWatcher = null;
         }
 
-        // Clear countdown properties (remove keys)
         if (PhotonNetwork.InRoom)
         {
             PhotonNetwork.CurrentRoom.SetCustomProperties(new Hashtable
@@ -143,13 +154,57 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
         UpdateCountdownText(0f);
     }
 
+    // Called on ALL clients by master. Each client will lock triad locally and REPORT back to master.
     [PunRPC]
-    void RPC_UpdatePlayerName(int actorNumber, string newName)
+    void RPC_RequestLockTriadLocal()
     {
-        if (PhotonNetwork.CurrentRoom.Players.TryGetValue(actorNumber, out Player player))
+        Debug.Log("[CompactRoomSessionStarter] RPC_RequestLockTriadLocal received — locking local triad now.");
+
+        // Run local lock routine (synchronous) and get triad
+        int[] tri = TriadTransferManager.EnsureInstance().LockTriadLocal();
+        int a = tri != null && tri.Length > 0 ? tri[0] : -1;
+        int b = tri != null && tri.Length > 1 ? tri[1] : -1;
+        int c = tri != null && tri.Length > 2 ? tri[2] : -1;
+
+        // Report back to master. Use MasterClient target so this runs only on the master.
+        if (PhotonNetwork.IsConnected && PhotonNetwork.LocalPlayer != null)
         {
-            player.NickName = newName;
-            RefreshPlayerList();
+            try
+            {
+                photonView.RPC(nameof(RPC_ReportTriadLocked), RpcTarget.MasterClient, PhotonNetwork.LocalPlayer.ActorNumber, a, b, c);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[CompactRoomSessionStarter] Failed to RPC_ReportTriadLocked: " + ex.Message);
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[CompactRoomSessionStarter] Not connected to Photon; cannot report triad to master via RPC.");
+        }
+    }
+
+    // Master receives this when clients report they locked triads.
+    [PunRPC]
+    void RPC_ReportTriadLocked(int actorNumber, int t0, int t1, int t2, PhotonMessageInfo info = default)
+    {
+        if (!PhotonNetwork.IsMasterClient)
+        {
+            // Only master should process these, but don't crash if someone else receives it.
+            return;
+        }
+
+        lock (triadReportLock)
+        {
+            if (!triadReportedActors.Contains(actorNumber))
+            {
+                triadReportedActors.Add(actorNumber);
+                Debug.Log($"[CompactRoomSessionStarter] Received triad report from actor {actorNumber} -> ({t0},{t1},{t2}). ReportedCount={triadReportedActors.Count}");
+            }
+            else
+            {
+                Debug.Log($"[CompactRoomSessionStarter] Duplicate triad report received from actor {actorNumber} — ignoring.");
+            }
         }
     }
 
@@ -184,11 +239,77 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
 
             if (remaining <= 0.0 && dur > 0f)
             {
+                Debug.Log("[CompactRoomSessionStarter] Countdown expired — requesting triad lock on all clients.");
+
                 // Cancel countdown props first (cleans up UI)
                 photonView.RPC(nameof(RPC_CancelCountdown), RpcTarget.All);
 
-                // LOCK TRIAD FROM CURRENT (ROOM) SCENE and LOAD sessionSceneName
-                TriadTransferManager.EnsureInstance().LockTriadAndLoad(sessionSceneName, true);
+                // Clear previous reports
+                lock (triadReportLock)
+                {
+                    triadReportedActors.Clear();
+                }
+
+                // 1) Ask all clients to lock their triad locally (each client will RPC back to master)
+                try
+                {
+                    photonView.RPC(nameof(RPC_RequestLockTriadLocal), RpcTarget.All);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("[CompactRoomSessionStarter] RPC_RequestLockTriadLocal failed: " + ex.Message);
+                }
+
+                // 2) Wait until either all players have reported PROP_TRIAD in their custom properties OR we receive reports from all players OR triadLockTimeout reached.
+                float deadline = Time.realtimeSinceStartup + triadLockTimeout;
+                bool allReady = false;
+
+                while (Time.realtimeSinceStartup < deadline)
+                {
+                    // quick check: are we master and in room?
+                    if (!PhotonNetwork.InRoom) break;
+
+                    // Compute readiness
+                    allReady = true;
+                    var players = PhotonNetwork.PlayerList;
+                    foreach (var p in players)
+                    {
+                        bool reported = false;
+                        lock (triadReportLock)
+                        {
+                            reported = triadReportedActors.Contains(p.ActorNumber);
+                        }
+
+                        // also consider them ready if they already had the triad in their custom props
+                        bool hasProp = p.CustomProperties != null && p.CustomProperties.ContainsKey(PhotonKeys.PROP_TRIAD);
+
+                        if (!reported && !hasProp)
+                        {
+                            allReady = false;
+                            break;
+                        }
+                    }
+
+                    if (allReady) break;
+
+                    yield return new WaitForSeconds(triadLockPollInterval);
+                }
+
+                if (allReady)
+                    Debug.Log("[CompactRoomSessionStarter] All players reported triads (or had triad props). Proceeding to scene load.");
+                else
+                    Debug.LogWarning("[CompactRoomSessionStarter] Not all players reported triads before timeout; proceeding to scene load anyway.");
+
+                // 3) Master triggers the synchronized level load (only master calls this)
+                if (PhotonNetwork.IsMasterClient)
+                {
+                    Debug.Log("[CompactRoomSessionStarter] Master is loading the session scene via PhotonNetwork.LoadLevel.");
+                    PhotonNetwork.LoadLevel(sessionSceneName);
+                }
+                else
+                {
+                    Debug.LogWarning("[CompactRoomSessionStarter] This client is no longer master; aborting master load. New master should handle load.");
+                }
 
                 yield break;
             }

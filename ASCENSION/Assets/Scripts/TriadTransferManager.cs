@@ -6,13 +6,9 @@ using ExitGames.Client.Photon;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Responsible for locking the triad at the moment you transition Room -> Session.
-/// Call LockTriadAndLoad("SessionSceneName", usePhotonLoad: true) from Room when you want to transfer.
-/// This will:
-/// - read triad from CharacterSelector in the **current scene**,
-/// - write it to PlayerPrefs and Photon LocalPlayer custom props,
-/// - wait briefly for confirmation (timeout),
-/// - then load the session scene.
+/// Manager that can (A) lock triad locally (write PlayerPrefs + LocalPlayer custom props),
+/// and (B) lock+load (used by master in some flows). The important method LockTriadLocal()
+/// now *returns* the triad it wrote so callers (RPC handlers) can report it quickly.
 /// </summary>
 public class TriadTransferManager : MonoBehaviourPun
 {
@@ -28,10 +24,6 @@ public class TriadTransferManager : MonoBehaviourPun
         DontDestroyOnLoad(this.gameObject);
     }
 
-    /// <summary>
-    /// Ensure there is an instance (create if missing) and return it.
-    /// Use this if you want to call from code but aren't sure an instance was placed in the scene.
-    /// </summary>
     public static TriadTransferManager EnsureInstance()
     {
         if (Instance != null) return Instance;
@@ -42,22 +34,14 @@ public class TriadTransferManager : MonoBehaviourPun
     }
 
     /// <summary>
-    /// Main entry: lock triad from the active scene (Room) and load sceneName.
-    /// If usePhotonLoad=true and Photon is connected, it will call PhotonNetwork.LoadLevel(sceneName).
+    /// Lock triad on this local client: read triad from CharacterSelector in the active scene (Room),
+    /// write PlayerPrefs fallback and Photon LocalPlayer custom properties (if connected).
+    /// Returns the triad as an int[3] (values -1 if missing).
+    /// This is synchronous — used when master tells clients to lock locally via RPC.
     /// </summary>
-    public void LockTriadAndLoad(string sceneName, bool usePhotonLoad = false)
+    public int[] LockTriadLocal()
     {
-        if (string.IsNullOrEmpty(sceneName))
-        {
-            Debug.LogWarning("TriadTransferManager: sceneName empty; aborting.");
-            return;
-        }
-        StartCoroutine(LockTriadAndLoadRoutine(sceneName, usePhotonLoad));
-    }
-
-    private IEnumerator LockTriadAndLoadRoutine(string sceneName, bool usePhotonLoad)
-    {
-        // Find CharacterSelector in the current (Room) scene
+        // Find CharacterSelector in the active (room) scene
         CharacterSelectorUIButtonPhoton selector = FindObjectOfType<CharacterSelectorUIButtonPhoton>();
         int[] tri = null;
         int chosenIndex = -1;
@@ -67,10 +51,21 @@ public class TriadTransferManager : MonoBehaviourPun
         {
             tri = selector.GetTriadIndices();
             chosenIndex = selector.GetCurrentIndex();
-            // do NOT call selector.SaveSelectionToPhoton() here - we'll explicitly write what we need below
+            // Try to read prefab name mapping if available (best-effort)
+            try
+            {
+                var field = typeof(CharacterSelectorUIButtonPhoton).GetField("prefabResourceNames", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                if (field != null)
+                {
+                    var list = field.GetValue(selector) as System.Collections.IList;
+                    if (list != null && chosenIndex >= 0 && chosenIndex < list.Count)
+                        prefabName = list[chosenIndex] as string;
+                }
+            }
+            catch { /* ignore */ }
         }
 
-        // fallback to PlayerPrefs or generate if needed
+        // fallback: try PlayerPrefs if selector not present or tri is null
         if (tri == null)
         {
             if (PlayerPrefs.HasKey(PhotonKeys.PREF_KEY_TRIAD))
@@ -85,61 +80,64 @@ public class TriadTransferManager : MonoBehaviourPun
                     if (parts.Length >= 3) int.TryParse(parts[2], out tri[2]);
                 }
             }
-            else
-            {
-                // generate fallback unique triad (safe default)
-                tri = new int[3] { Random.Range(0, 10), Random.Range(0, 10), Random.Range(0, 10) };
-                if (tri[1] == tri[0]) tri[1] = (tri[1] + 1) % 10;
-                if (tri[2] == tri[0] || tri[2] == tri[1]) tri[2] = (tri[2] + 2) % 10;
-            }
         }
 
-        if (chosenIndex < 0 && PlayerPrefs.HasKey(PhotonKeys.PREF_CHARACTER_INDEX))
-            chosenIndex = PlayerPrefs.GetInt(PhotonKeys.PREF_CHARACTER_INDEX, -1);
+        // final fallback: generate a unique-ish triad locally (shouldn't normally happen)
+        if (tri == null)
+        {
+            tri = new int[3] { Random.Range(0, 10), Random.Range(0, 10), Random.Range(0, 10) };
+            if (tri[1] == tri[0]) tri[1] = (tri[1] + 1) % 10;
+            if (tri[2] == tri[0] || tri[2] == tri[1]) tri[2] = (tri[2] + 2) % 10;
+        }
 
-        if (PlayerPrefs.HasKey(PhotonKeys.PREF_CHARACTER_PREFAB))
-            prefabName = PlayerPrefs.GetString(PhotonKeys.PREF_CHARACTER_PREFAB, null);
-
-        // Persist to PlayerPrefs (local fallback) — so spawner finds it even if props race
+        // Persist to PlayerPrefs (local fallback)
         PlayerPrefs.SetString(PhotonKeys.PREF_KEY_TRIAD, $"{tri[0]},{tri[1]},{tri[2]}");
         if (chosenIndex >= 0) PlayerPrefs.SetInt(PhotonKeys.PREF_CHARACTER_INDEX, chosenIndex);
         if (!string.IsNullOrEmpty(prefabName)) PlayerPrefs.SetString(PhotonKeys.PREF_CHARACTER_PREFAB, prefabName);
         PlayerPrefs.Save();
 
-        // If Photon connected, write triad + index into LocalPlayer custom props
+        // If Photon connected, set LocalPlayer custom props
         if (PhotonNetwork.IsConnected && PhotonNetwork.LocalPlayer != null)
         {
             object[] triObj = new object[] { tri[0], tri[1], tri[2] };
-            ExitGames.Client.Photon.Hashtable props = new ExitGames.Client.Photon.Hashtable();
-            props[PhotonKeys.PROP_TRIAD] = triObj;
+            ExitGames.Client.Photon.Hashtable props = new ExitGames.Client.Photon.Hashtable
+            {
+                { PhotonKeys.PROP_TRIAD, triObj }
+            };
             if (chosenIndex >= 0) props[PhotonKeys.PROP_CHARACTER_INDEX] = chosenIndex;
             if (!string.IsNullOrEmpty(prefabName)) props[PhotonKeys.PROP_CHARACTER_PREFAB] = prefabName;
 
             PhotonNetwork.LocalPlayer.SetCustomProperties(props);
-            Debug.Log($"TriadTransferManager: Wrote triad -> LocalPlayer props ({tri[0]},{tri[1]},{tri[2]}) idx={chosenIndex}");
-        }
-
-        // Wait until LocalPlayer props contain triad or timeout
-        float deadline = Time.realtimeSinceStartup + syncTimeout;
-        if (PhotonNetwork.IsConnected && PhotonNetwork.LocalPlayer != null)
-        {
-            while (Time.realtimeSinceStartup < deadline)
-            {
-                var props = PhotonNetwork.LocalPlayer.CustomProperties;
-                if (props != null && props.ContainsKey(PhotonKeys.PROP_TRIAD))
-                    break;
-                yield return null;
-            }
-        }
-
-        // Finally load the scene
-        if (usePhotonLoad && PhotonNetwork.IsConnected)
-        {
-            PhotonNetwork.LoadLevel(sceneName);
+            Debug.Log($"TriadTransferManager.LockTriadLocal: local triad written ({tri[0]},{tri[1]},{tri[2]}) idx={chosenIndex}");
         }
         else
         {
-            SceneManager.LoadScene(sceneName);
+            Debug.Log($"TriadTransferManager.LockTriadLocal: wrote PlayerPrefs triad ({tri[0]},{tri[1]},{tri[2]}); Photon not connected or local player missing.");
         }
+
+        return tri;
+    }
+
+    /// <summary>
+    /// Legacy helper: lock triad locally then load the scene (call this only on master if you want a combined operation).
+    /// Kept for compatibility but server-driven multi-client flow uses RPC_RequestLockTriadLocal + RPC_ReportTriadLocked instead.
+    /// </summary>
+    public void LockTriadAndLoad(string sceneName, bool usePhotonLoad = false)
+    {
+        StartCoroutine(LockTriadAndLoadRoutine(sceneName, usePhotonLoad));
+    }
+
+    private IEnumerator LockTriadAndLoadRoutine(string sceneName, bool usePhotonLoad)
+    {
+        int[] tri = LockTriadLocal();
+
+        // Wait a tiny bit for props to propagate locally
+        float waitUntil = Time.realtimeSinceStartup + 0.15f;
+        while (Time.realtimeSinceStartup < waitUntil) yield return null;
+
+        if (usePhotonLoad && PhotonNetwork.IsConnected)
+            PhotonNetwork.LoadLevel(sceneName);
+        else
+            SceneManager.LoadScene(sceneName);
     }
 }

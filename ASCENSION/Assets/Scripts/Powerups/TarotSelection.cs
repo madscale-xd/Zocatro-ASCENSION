@@ -9,6 +9,7 @@ using Photon.Pun;
 /// <summary>
 /// TarotSelection - reads triad from PhotonView.InstantiationData (preferred), then falls back
 /// to LocalPlayer custom props, then PlayerPrefs. Owner-only UI flash. Triad-first acquisition, then shuffled deck.
+/// Attach to a component under your player prefab so that the panel is a child and owner-only logic works.
 /// </summary>
 [DisallowMultipleComponent]
 public class TarotSelection : MonoBehaviour

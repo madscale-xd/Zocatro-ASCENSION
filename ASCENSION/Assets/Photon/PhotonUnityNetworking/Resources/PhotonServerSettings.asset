@@ -56,6 +56,8 @@ MonoBehaviour:
   - RPC_AddAmmo
   - RPC_BroadcastAmmo
   - RPC_SetAmmo
+  - RPC_RequestLockTriadLocal
+  - RPC_ReportTriadLocked
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1
