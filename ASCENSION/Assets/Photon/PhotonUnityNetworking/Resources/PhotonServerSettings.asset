@@ -58,6 +58,18 @@ MonoBehaviour:
   - RPC_SetAmmo
   - RPC_RequestLockTriadLocal
   - RPC_ReportTriadLocked
+  - RPC_BeginRite
+  - RPC_EndRite
+  - RPC_Master_ReportPlayerDeath
+  - RPC_PlayerEnteredZone
+  - RPC_PlayerExitedZone
+  - RPC_UpdateClientCount
+  - RPC_BeginRiteOnClients
+  - RPC_EndRiteOnClients
+  - RPC_ReportEnter
+  - RPC_ReportExit
+  - RPC_ReportParticipantDeath
+  - RPC_UpdateWaitingVisual
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1

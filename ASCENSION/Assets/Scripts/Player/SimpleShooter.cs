@@ -221,7 +221,8 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
                 if (defaultSelfDamagePerShot > 0)
                 {
                     var ph = GetComponentInParent<PlayerHealth>();
-                    if (ph != null) ph.TakeDamage(defaultSelfDamagePerShot, false);
+                    if (ph != null)
+                        ph.RequestTakeDamageFrom(PhotonNetwork.LocalPlayer.ActorNumber, defaultSelfDamagePerShot, false);
                 }
 
                 return;

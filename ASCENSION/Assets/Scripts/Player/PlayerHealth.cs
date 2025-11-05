@@ -7,8 +7,8 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// PlayerHealth: handles local authoritative damage, HUD updates, and (on death) triggers a safe leave-to-lobby flow.
-/// When HP <= 0 on the owner's client, this will create (or use) a persistent LeaveRoomHandler that calls PhotonNetwork.LeaveRoom()
-/// and loads the configured lobby scene when leaving completes.
+/// Integrated with AscensionParticipant to enforce ascension PvP rules: players cannot damage each other unless both are ascendees
+/// in the same active rite (ascension zone).
 /// </summary>
 public class PlayerHealth : MonoBehaviourPun
 {
@@ -117,6 +117,13 @@ public class PlayerHealth : MonoBehaviourPun
         // Start the leave-to-lobby flow only on the owning client (owner is authoritative for its own death)
         if (photonView != null && photonView.IsMine)
         {
+            // Inform AscensionParticipant (if present) about local death so it can report to master
+            var participant = GetComponent<AscensionParticipant>();
+            if (participant != null)
+            {
+                participant.OnLocalDeath();
+            }
+
             // Optionally wait a frame or a short delay for death animation/sfx
             if (leaveDelaySeconds > 0f)
                 Invoke(nameof(StartLeaveRoomFlow), leaveDelaySeconds);
@@ -155,6 +162,7 @@ public class PlayerHealth : MonoBehaviourPun
     /// <summary>
     /// RPC invoked on the owner of this PlayerHealth to apply damage authoritatively.
     /// We target this RPC to the player who owns this PhotonView.
+    /// Attacker must call the target's RPC with attackerActorNumber = PhotonNetwork.LocalPlayer.ActorNumber.
     /// </summary>
     [PunRPC]
     public void RPC_TakeDamage(int amount, bool isHead, int attackerActorNumber)
@@ -163,6 +171,25 @@ public class PlayerHealth : MonoBehaviourPun
         if (photonView != null && !photonView.IsMine) return;
 
         Debug.Log($"[PlayerHealth] RPC_TakeDamage received on actor {PhotonNetwork.LocalPlayer?.ActorNumber ?? -1}: amount={amount}, isHead={isHead}, attacker={attackerActorNumber}");
+
+        // Enforce ascension rules: if an AscensionParticipant exists, consult it. Otherwise, disallow PvP by default.
+        var participant = GetComponent<AscensionParticipant>();
+        if (participant != null)
+        {
+            bool allowed = participant.CanBeDamagedBy(attackerActorNumber);
+            if (!allowed)
+            {
+                Debug.Log($"[PlayerHealth] Damage ignored — ascension rules prevent attacker {attackerActorNumber} from damaging this target.");
+                return;
+            }
+        }
+        else
+        {
+            // If the player prefab does not include AscensionParticipant, treat as not in rite => disallow PvP.
+            Debug.LogWarning("[PlayerHealth] No AscensionParticipant on player - ignoring PvP damage by default.");
+            return;
+        }
+
         ApplyDamage(amount, isHead);
     }
 
@@ -180,7 +207,41 @@ public class PlayerHealth : MonoBehaviourPun
         if (currentHealth <= 0)
             onDeath?.Invoke();
     }
+
+    
+
+    /// <summary>
+    /// Called by local code (owner) to request taking damage from attackerActorNumber.
+    /// This enforces AscensionParticipant rules the same way RPC_TakeDamage does.
+    /// Use for self-damage or any local application of incoming damage.
+    /// </summary>
+    public void RequestTakeDamageFrom(int attackerActorNumber, int amount, bool isHead = false)
+    {
+        // Only owner executes local damage application
+        if (photonView != null && !photonView.IsMine)
+            return;
+
+        // Enforce ascension rules (same check as RPC_TakeDamage)
+        var participant = GetComponent<AscensionParticipant>();
+        if (participant != null)
+        {
+            if (!participant.CanBeDamagedBy(attackerActorNumber))
+            {
+                Debug.Log($"[PlayerHealth] Local damage denied by ascension rules. attacker={attackerActorNumber}");
+                return;
+            }
+        }
+        else
+        {
+            // If no AscensionParticipant on the target, you treat PvP as disallowed by default.
+            Debug.LogWarning("[PlayerHealth] No AscensionParticipant - ignoring PvP by default.");
+            return;
+        }
+
+        ApplyDamage(amount, isHead);
+    }
 }
+
 
 /// <summary>
 /// LeaveRoomHandler: persistent helper that calls PhotonNetwork.LeaveRoom() and loads the lobby scene when leaving completes.
