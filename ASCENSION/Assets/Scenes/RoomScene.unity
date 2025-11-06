@@ -3387,7 +3387,11 @@ MonoBehaviour:
   - SIGIL
   - IVY
   - REGALIA
-  prefabResourceNames: []
+  prefabResourceNames:
+  - MAYHEM
+  - SIGIL
+  - IVY
+  - REGALIA
   leftUIBtn: {fileID: 2007886006}
   rightUIBtn: {fileID: 1959715194}
   triadSlots:
@@ -3983,7 +3987,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 593608021}
   m_HandleRect: {fileID: 593608020}
   m_Direction: 2
-  m_Value: 0
+  m_Value: 1
   m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
@@ -4694,7 +4698,7 @@ MonoBehaviour:
   playerNamePrefab: {fileID: 2544614851791157430, guid: 4045486b55c4b3347acac81e4fa1962f, type: 3}
   hostColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   normalColor: {r: 1, g: 1, b: 1, a: 1}
-  triadLockTimeout: 3
+  triadLockTimeout: 1
   triadLockPollInterval: 0.05
 --- !u!114 &1892220083541956096
 MonoBehaviour:

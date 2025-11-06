@@ -70,6 +70,7 @@ MonoBehaviour:
   - RPC_ReportExit
   - RPC_ReportParticipantDeath
   - RPC_UpdateWaitingVisual
+  - RPC_SetOwnerActor
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1

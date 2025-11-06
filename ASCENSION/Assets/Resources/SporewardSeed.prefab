@@ -15,7 +15,7 @@ GameObject:
   - component: {fileID: 382017600304623698}
   - component: {fileID: 1695157585800304141}
   - component: {fileID: 6493104854793097135}
-  - component: {fileID: 203264662891273377}
+  - component: {fileID: -6651352260196650097}
   m_Layer: 0
   m_Name: SporewardSeed
   m_TagString: Bullet
@@ -66,7 +66,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 37b378732ba33e14fa500ab453321df1, type: 2}
+  - {fileID: 2100000, guid: a2968fc1e76ea094ebd141d3d5255502, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -122,6 +122,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7bc3413efdc2491499960f281bd7ecb7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  ownerActorNumber: -1
+  headshotMultiplier: 3
+  outgoingDamageMultiplier: 1
+  ignoreBodyHits: 0
+  bulletSpeed: 40
 --- !u!114 &1695157585800304141
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -166,7 +171,7 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
---- !u!114 &203264662891273377
+--- !u!114 &-6651352260196650097
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -178,7 +183,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aa584fbee541324448dd18d8409c7a41, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  ObservedComponentsFoldoutOpen: 1
+  ObservedComponentsFoldoutOpen: 0
   Group: 0
   prefixField: -1
   Synchronization: 3

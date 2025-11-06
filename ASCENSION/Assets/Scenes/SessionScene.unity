@@ -1850,9 +1850,9 @@ MonoBehaviour:
   - {fileID: 967611406}
   prefabPrefabs:
   - {fileID: 146960453718510139, guid: 75122a8fd699a0047945256e4ef62d67, type: 3}
-  - {fileID: 5757560010211559606, guid: 3db7d6c04d8f8e04d87913407d464980, type: 3}
-  - {fileID: 5757560010211559606, guid: e43e6ac6ae137774880cd551e7266f8c, type: 3}
-  - {fileID: 5757560010211559606, guid: 651a2a4c63d0d164d9f6d4493540fdd4, type: 3}
+  - {fileID: 146960453718510139, guid: 854428b8981f2d547bfddfdcea92d42b, type: 3}
+  - {fileID: 146960453718510139, guid: 22655808863ea55428ea9c80e4263ab6, type: 3}
+  - {fileID: 146960453718510139, guid: 4d28380318e064c49aef8dd05780e6fb, type: 3}
   waitForPhotonPropIfConnected: 1
   waitForPropTimeout: 1.5
 --- !u!1 &1556890588

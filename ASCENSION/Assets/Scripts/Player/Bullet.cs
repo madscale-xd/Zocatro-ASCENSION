@@ -1,13 +1,11 @@
 // Bullet.cs
 using System;
-using System.Collections;
 using UnityEngine;
 using Photon.Pun;
 
 [RequireComponent(typeof(Collider))]
 public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
 {
-    // No pooling support in this version — destroy when lifetime expires
     private float lifetime = 5f;
     private float spawnTime;
     private Rigidbody rb;
@@ -19,7 +17,6 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
     [HideInInspector] public bool ignoreBodyHits = false;
     [HideInInspector] public float bulletSpeed = 40f;
 
-    // small period we disable collider to avoid immediate overlap collisions
     const float initialColliderDisableSeconds = 0.06f;
 
     void Awake()
@@ -35,7 +32,6 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
             rb.interpolation = RigidbodyInterpolation.Interpolate;
         }
 
-        // Try to parse instantiation data if available (in case Awake runs after Photon sets it)
         TryParseInstantiationDataFromPhotonView();
     }
 
@@ -46,14 +42,10 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
 
     void Update()
     {
-        // lifetime handling
         if (lifetime > 0f && Time.time - spawnTime >= lifetime)
             DestroySelf();
     }
 
-    /// <summary>
-    /// Launch / set lifetime (for local non-networked bullets).
-    /// </summary>
     public void Launch(float life, bool _unusedForNow)
     {
         lifetime = life;
@@ -68,20 +60,16 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
 
     void OnCollisionEnter(Collision other)
     {
-        // For hitting static world objects, destroy
-        // (damage to players handled by HitboxDamage triggers)
         DestroySelf();
     }
 
     void OnTriggerEnter(Collider other)
     {
-        // let HitboxDamage handle damage on target triggers; we still might get triggered
-        // by non-player triggers so optionally destroy here? keep neutral — HitboxDamage will call destroy.
+        // HitboxDamage should handle actual damage; do not apply damage here.
     }
 
     void DestroySelf()
     {
-        // If this bullet is networked (PhotonView exists) and owner, destroy over network.
         var pv = GetComponent<PhotonView>();
         if (pv != null && PhotonNetwork.InRoom)
         {
@@ -92,7 +80,6 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
             }
             else
             {
-                // Not owner: do local destroy fallback
                 try { Destroy(pv.gameObject); } catch { }
             }
         }
@@ -102,10 +89,9 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
         }
     }
 
-    // ---------- Photon integration ----------
+    // Photon integration
     public void OnPhotonInstantiate(PhotonMessageInfo info)
     {
-        // Parse instantiationData
         TryParseInstantiationDataFromPhotonView();
 
         spawnTime = Time.time;
@@ -115,25 +101,20 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
             Invoke(nameof(DestroySelf), lifetime);
         }
 
-        // set initial velocity if zero
         if (rb != null && bulletSpeed > 0f && rb.velocity.sqrMagnitude <= 0.01f)
             rb.velocity = transform.forward * bulletSpeed;
 
-        // ensure we ignore collision with owner colliders (ownerActorNumber must be set by instData)
         StartCoroutine(ApplyIgnoreWithOwnerCollidersAndEnableCollider());
     }
 
-    private IEnumerator ApplyIgnoreWithOwnerCollidersAndEnableCollider()
+    private System.Collections.IEnumerator ApplyIgnoreWithOwnerCollidersAndEnableCollider()
     {
-        // small safety: disable our collider briefly to avoid immediate overlap collisions
         var col = GetComponent<Collider>();
         if (col != null) col.enabled = false;
 
-        // wait a frame to allow scene to settle and owner players to exist on remote clients
         yield return null;
         yield return null;
 
-        // find owner colliders by actor number (scan PhotonViews)
         if (ownerActorNumber >= 0)
         {
             var allPVs = FindObjectsOfType<PhotonView>();
@@ -155,7 +136,6 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
             }
         }
 
-        // Also if there's an OwnedEntity on this bullet with ownerGameObject, use that (optional)
         var oe = GetComponent<OwnedEntity>();
         if (oe != null && oe.ownerGameObject != null)
         {
@@ -168,7 +148,6 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
             }
         }
 
-        // wait a short time to ensure ignores applied across clients, then re-enable collider
         yield return new WaitForSeconds(initialColliderDisableSeconds);
 
         if (col != null) col.enabled = true;
@@ -196,5 +175,7 @@ public class Bullet : MonoBehaviourPun, IPunInstantiateMagicCallback
         {
             Debug.LogWarning("[Bullet] Failed parsing instantiationData: " + ex);
         }
+
+        Debug.Log($"[Bullet] OnPhotonInstantiate parsed owner={ownerActorNumber}, headMult={headshotMultiplier}, outMult={outgoingDamageMultiplier}, speed={bulletSpeed}, life={lifetime}");
     }
 }

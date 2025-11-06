@@ -147,7 +147,7 @@ MonoBehaviour:
   detectionRadius: 4
   fireRate: 1
   damage: 12
-  projectilePrefab: {fileID: 2977847392404456608, guid: 9f970437f7d307e47876a924fe3e0ff8, type: 3}
+  projectilePrefab: {fileID: 2977847392404456608, guid: 99f923ec95103684ca7f41dcd62a2cb1, type: 3}
   projectileSpeed: 24
   applyHitscanIfNoProjectile: 0
   aimHeightOffset: 1.1
