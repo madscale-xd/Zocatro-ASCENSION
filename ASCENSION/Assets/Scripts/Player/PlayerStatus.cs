@@ -3,14 +3,6 @@ using UnityEngine;
 using Photon.Pun;
 using UnityEngine.UI;
 
-/// <summary>
-/// Central place to implement status effects on the player: root, stop-healing, homeostasis, invulnerability, etc.
-/// Designed to be owner-local: RPCs are targeted at the player's owner so these methods run on the owning client.
-/// Attach to your player prefab (same root as PlayerHealth / PhotonView).
-/// 
-/// NOTE: This version does NOT immobilize the player during Homeostasis (per request).
-/// Homeostasis still CANCELS if the player attempts to move or actually moves.
-/// </summary>
 [RequireComponent(typeof(PhotonView))]
 public class PlayerStatus : MonoBehaviourPun
 {
@@ -52,23 +44,18 @@ public class PlayerStatus : MonoBehaviourPun
     }
 
     #region RPC / Local wrappers for root & stop-heal
-    // Called via Photon RPC targeted at the owner's client
     [PunRPC]
     public void RPC_ApplyRoot(float duration, int attackerActorNumber)
     {
         ApplyRootLocal(duration);
     }
 
-    // Called via Photon RPC targeted at the owner's client
     [PunRPC]
     public void RPC_StopHealing(float duration, int attackerActorNumber)
     {
         StopHealingLocal(duration);
     }
 
-    /// <summary>
-    /// Apply a root locally (disable movement). Use SendMessage to communicate with character controllers.
-    /// </summary>
     public void ApplyRootLocal(float duration)
     {
         if (rootCoroutine != null) StopCoroutine(rootCoroutine);
@@ -78,7 +65,6 @@ public class PlayerStatus : MonoBehaviourPun
     IEnumerator RootRoutine(float dur)
     {
         isRooted = true;
-        // Ask movement systems to disable movement - use SendMessage to keep decoupled
         gameObject.SendMessage("SetImmobilized", true, SendMessageOptions.DontRequireReceiver);
 
         yield return new WaitForSeconds(dur);
@@ -97,7 +83,6 @@ public class PlayerStatus : MonoBehaviourPun
     IEnumerator StopHealingRoutine(float dur)
     {
         stopHealingActive = true;
-        // If you have a healing system, it should check for this flag - we also send a message for compatibility
         gameObject.SendMessage("StopHealing", dur, SendMessageOptions.DontRequireReceiver);
 
         yield return new WaitForSeconds(dur);
@@ -109,26 +94,21 @@ public class PlayerStatus : MonoBehaviourPun
     #endregion
 
     #region Homeostasis (no immobilize)
-    /// <summary>
-    /// Starts the homeostasis effect on the owner client:
-    /// - Gradually applies shield and heal over 'duration' using SendMessage("ApplyShield", amount) and SendMessage("Heal", amount).
-    /// - Applies invulnerability for the duration (SendMessage "ApplyInvulnerability"/"RemoveInvulnerability").
-    /// - DOES NOT immobilize the player (per request), but the effect cancels immediately if the player attempts to move or actually moves.
-    /// </summary>
     public void StartHomeostasis(float shieldAmount, float healAmount, float duration)
     {
-        // cancel any existing homeostasis
+        // Start only on the owner — this is expected; but be defensive.
+        if (photonView != null && PhotonNetwork.InRoom && !photonView.IsMine)
+        {
+            Debug.LogWarning("[PlayerStatus] StartHomeostasis called on non-owner instance. Ignoring.");
+            return;
+        }
+
         if (homeostasisCoroutine != null) StopCoroutine(homeostasisCoroutine);
         homeostasisCoroutine = StartCoroutine(HomeostasisRoutine(shieldAmount, healAmount, duration));
     }
 
-    /// <summary>
-    /// Helper that detects attempted movement (input). Works with Unity's legacy input manager.
-    /// If you're using the new Input System, call CancelHomeostasis() from your input callbacks instead.
-    /// </summary>
     private bool IsAttemptedMovement()
     {
-        // Legacy Input axes (works with Input Manager)
         float h = 0f, v = 0f;
         try
         {
@@ -139,7 +119,6 @@ public class PlayerStatus : MonoBehaviourPun
 
         if (Mathf.Abs(h) > 0.001f || Mathf.Abs(v) > 0.001f) return true;
 
-        // Common keys: WASD, arrows, jump, sprint
         if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.D)) return true;
         if (Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow) || Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow)) return true;
         if (Input.GetKey(KeyCode.Space) || Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) return true;
@@ -147,9 +126,6 @@ public class PlayerStatus : MonoBehaviourPun
         return false;
     }
 
-    /// <summary>
-    /// Public cancel API (useful for new Input System callbacks).
-    /// </summary>
     public void CancelHomeostasis()
     {
         if (homeostasisCoroutine != null)
@@ -166,9 +142,17 @@ public class PlayerStatus : MonoBehaviourPun
 
     IEnumerator HomeostasisRoutine(float shieldAmount, float healAmount, float duration)
     {
+        // Defensive: ensure this runs on owner only
+        if (photonView != null && PhotonNetwork.InRoom && !photonView.IsMine)
+        {
+            Debug.LogWarning("[PlayerStatus] HomeostasisRoutine invoked on non-owner, aborting.");
+            yield break;
+        }
+
         // Initialization
         float appliedShield = 0f;
         float appliedHeal = 0f;
+        float healAccumulator = 0f; // accumulate fractional heals, send ints to PlayerHealth
 
         // Apply invulnerability immediately for the full duration (owner-local).
         gameObject.SendMessage("ApplyInvulnerability", duration, SendMessageOptions.DontRequireReceiver);
@@ -181,16 +165,20 @@ public class PlayerStatus : MonoBehaviourPun
         lastPosition = transform.position;
         bool canceledByMovement = false;
 
-        // Loop until full duration or until movement/attempt cancels
+        // Cache PlayerHealth (owner-local) if present
+        PlayerHealth phComp = GetComponent<PlayerHealth>() ?? GetComponentInChildren<PlayerHealth>() ?? GetComponentInParent<PlayerHealth>();
+
+        // owner's actor to include as healer if we need to RPC (defensive)
+        int myActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null) ? PhotonNetwork.LocalPlayer.ActorNumber : -1;
+
         while (elapsed < duration)
         {
             float dt = Time.deltaTime;
 
-            // 1) detect attempted movement (input)
+            // movement checks
             bool attempted = false;
             try { attempted = IsAttemptedMovement(); } catch { attempted = false; }
 
-            // 2) detect actual movement (rigidbody/charactercontroller/position-delta)
             bool moved = false;
             var rb = GetComponent<Rigidbody>();
             if (rb != null)
@@ -206,7 +194,6 @@ public class PlayerStatus : MonoBehaviourPun
                 }
                 else
                 {
-                    // fallback: position delta scaled by dt
                     float d = (transform.position - lastPosition).sqrMagnitude;
                     if (d > (movementCancelThreshold * movementCancelThreshold) * dt * dt) moved = true;
                 }
@@ -215,27 +202,72 @@ public class PlayerStatus : MonoBehaviourPun
             if (attempted || moved)
             {
                 canceledByMovement = true;
-                break; // cancel immediately
+                break;
             }
 
-            // apply fractional shield/heal this frame
-            float frac = (duration > 0f) ? (dt / duration) : 1f;
-            float addShield = shieldAmount * frac;
-            float addHeal = healAmount * frac;
-
-            // clamp to remaining
-            if (appliedShield + addShield > shieldAmount) addShield = shieldAmount - appliedShield;
-            if (appliedHeal + addHeal > healAmount) addHeal = healAmount - appliedHeal;
-
-            if (addShield > 0f)
+            // Skip healing if stop-heal is active
+            if (!stopHealingActive)
             {
-                try { gameObject.SendMessage("ApplyShield", addShield, SendMessageOptions.DontRequireReceiver); } catch { }
-                appliedShield += addShield;
-            }
-            if (addHeal > 0f)
-            {
-                try { gameObject.SendMessage("Heal", addHeal, SendMessageOptions.DontRequireReceiver); } catch { }
-                appliedHeal += addHeal;
+                float frac = (duration > 0f) ? (dt / duration) : 1f;
+                float addShield = shieldAmount * frac;
+                float addHeal = healAmount * frac;
+
+                // clamp to remaining
+                if (appliedShield + addShield > shieldAmount) addShield = shieldAmount - appliedShield;
+                if (appliedHeal + addHeal > healAmount) addHeal = healAmount - appliedHeal;
+
+                if (addShield > 0f)
+                {
+                    try { gameObject.SendMessage("ApplyShield", addShield, SendMessageOptions.DontRequireReceiver); } catch { }
+                    appliedShield += addShield;
+                }
+
+                if (addHeal > 0f)
+                {
+                    // accumulate fraction
+                    healAccumulator += addHeal;
+                    appliedHeal += addHeal;
+
+                    // whenever we have at least 1.0 accumulated, send integer heal to PlayerHealth
+                    if (healAccumulator >= 1f)
+                    {
+                        int toApply = Mathf.FloorToInt(healAccumulator);
+                        if (toApply > 0)
+                        {
+                            // Apply heal on owner via PlayerHealth.ApplyHeal (preferred)
+                            if (phComp != null)
+                            {
+                                var targetPv = phComp.GetComponent<PhotonView>();
+                                if (targetPv != null && PhotonNetwork.InRoom && !targetPv.IsMine)
+                                {
+                                    // defensive: call owner's RPC to heal themselves
+                                    try
+                                    {
+                                        targetPv.RPC("RPC_Heal", targetPv.Owner, toApply, myActor);
+                                    }
+                                    catch
+                                    {
+                                        // fallback: try to call local ApplyHeal (best-effort)
+                                        try { phComp.ApplyHeal(toApply); } catch { }
+                                    }
+                                }
+                                else
+                                {
+                                    // owner-local: apply directly (this will broadcast)
+                                    try { phComp.ApplyHeal(toApply); } catch { }
+                                }
+                            }
+                            else
+                            {
+                                // No PlayerHealth: fallback to SendMessage (maintain backwards compatibility)
+                                try { gameObject.SendMessage("Heal", (float)toApply, SendMessageOptions.DontRequireReceiver); } catch { }
+                            }
+
+                            // subtract applied integer from accumulator
+                            healAccumulator -= toApply;
+                        }
+                    }
+                }
             }
 
             elapsed += dt;
@@ -243,15 +275,38 @@ public class PlayerStatus : MonoBehaviourPun
             yield return null;
         }
 
-        // If not canceled, apply any remainder
+        // If not canceled, apply any remainder (round remaining fractional heal)
         if (!canceledByMovement)
         {
             float remainingShield = Mathf.Max(0f, shieldAmount - appliedShield);
             float remainingHeal = Mathf.Max(0f, healAmount - appliedHeal);
+
             if (remainingShield > 0f)
                 gameObject.SendMessage("ApplyShield", remainingShield, SendMessageOptions.DontRequireReceiver);
+
             if (remainingHeal > 0f)
-                gameObject.SendMessage("Heal", remainingHeal, SendMessageOptions.DontRequireReceiver);
+            {
+                // Prefer PlayerHealth
+                int finalHeal = Mathf.RoundToInt(remainingHeal);
+
+                if (phComp != null)
+                {
+                    var targetPv = phComp.GetComponent<PhotonView>();
+                    if (targetPv != null && PhotonNetwork.InRoom && !targetPv.IsMine)
+                    {
+                        try { targetPv.RPC("RPC_Heal", targetPv.Owner, finalHeal, myActor); }
+                        catch { try { phComp.ApplyHeal(finalHeal); } catch { } }
+                    }
+                    else
+                    {
+                        try { phComp.ApplyHeal(finalHeal); } catch { }
+                    }
+                }
+                else
+                {
+                    try { gameObject.SendMessage("Heal", remainingHeal, SendMessageOptions.DontRequireReceiver); } catch { }
+                }
+            }
         }
 
         // Stop visuals and remove invulnerability (immediate)
@@ -261,7 +316,6 @@ public class PlayerStatus : MonoBehaviourPun
 
         homeostasisCoroutine = null;
     }
-
     #endregion
 
     #region Pulse UI

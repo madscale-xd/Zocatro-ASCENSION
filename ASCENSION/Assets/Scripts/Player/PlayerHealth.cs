@@ -26,6 +26,7 @@ public class PlayerHealth : MonoBehaviourPun
 
     [Header("Events (optional)")]
     public UnityEvent onDamage;
+    public UnityEvent onHeal;
     public UnityEvent onDeath;
 
     [Header("UI (optional)")]
@@ -83,7 +84,7 @@ public class PlayerHealth : MonoBehaviourPun
         currentHealth -= amount;
         currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
 
-        Debug.Log($"{name} took {amount} damage{(isHeadHit ? " (HEADSHOT)" : "")}. HP: {Mathf.Max(currentHealth,0)}/{maxHealth}");
+        Debug.Log($"{name} took {amount} damage{(isHeadHit ? " (HEADSHOT)" : "")}. HP: {Mathf.Max(currentHealth, 0)}/{maxHealth}");
 
         UpdateHpText();
 
@@ -101,6 +102,39 @@ public class PlayerHealth : MonoBehaviourPun
 
         if (currentHealth <= 0)
             Die();
+    }
+    
+    /// <summary>
+    /// Centralized heal application on the owner client.
+    /// Updates currentHealth, clamps, invokes onHeal, and broadcasts to remote clients.
+    /// </summary>
+    public void ApplyHeal(int amount)
+    {
+        if (amount <= 0) return;
+
+        int prevHealth = currentHealth;
+        currentHealth += amount;
+        currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
+
+        Debug.Log($"{name} healed {amount}. HP: {currentHealth}/{maxHealth} (was {prevHealth})");
+
+        UpdateHpText();
+
+        // optional event
+        onHeal?.Invoke();
+
+        // If owner, broadcast updated HP to others
+        if (photonView != null && photonView.IsMine)
+        {
+            try
+            {
+                photonView.RPC("RPC_BroadcastHealth", RpcTarget.Others, currentHealth);
+            }
+            catch { /* ignore network issues */ }
+        }
+
+        // NOTE: if you want revives to trigger behavior, detect prevHealth <= 0 && currentHealth > 0 here
+        // and invoke a revive event or run revive logic.
     }
 
     public int GetCurrentHealth() => currentHealth;
@@ -193,6 +227,25 @@ public class PlayerHealth : MonoBehaviourPun
         ApplyDamage(amount, isHead);
     }
 
+    /// <summary>
+    /// RPC invoked on the owner of this PlayerHealth to apply healing authoritatively.
+    /// Other clients should call: targetPv.RPC("RPC_Heal", targetPv.Owner, amount, PhotonNetwork.LocalPlayer.ActorNumber);
+    /// </summary>
+    [PunRPC]
+    public void RPC_Heal(int amount, int healerActorNumber)
+    {
+        // Only the owner should execute healing locally.
+        if (photonView != null && !photonView.IsMine) return;
+
+        Debug.Log($"[PlayerHealth] RPC_Heal received on actor {PhotonNetwork.LocalPlayer?.ActorNumber ?? -1}: amount={amount}, healer={healerActorNumber}");
+
+        // If you have AscensionParticipant rules and want to restrict who may heal whom, check here:
+        // var participant = GetComponent<AscensionParticipant>();
+        // if (participant != null && !participant.CanBeHealedBy(healerActorNumber)) { Debug.Log("Heal denied by ascension rules."); return; }
+
+        ApplyHeal(amount);
+    }
+
     // Sent by the owner to all other clients so they can update remote nameplates/HUDs for this player.
     [PunRPC]
     public void RPC_BroadcastHealth(int newHealth)
@@ -208,7 +261,7 @@ public class PlayerHealth : MonoBehaviourPun
             onDeath?.Invoke();
     }
 
-    
+
 
     /// <summary>
     /// Called by local code (owner) to request taking damage from attackerActorNumber.
@@ -239,6 +292,22 @@ public class PlayerHealth : MonoBehaviourPun
         }
 
         ApplyDamage(amount, isHead);
+    }
+    
+    /// <summary>
+    /// Called by local code (owner) to request a heal from a healer actor.
+    /// This mirrors RequestTakeDamageFrom: only the owner executes local heals.
+    /// </summary>
+    public void RequestHealFrom(int healerActorNumber, int amount)
+    {
+        // Only owner can apply heal locally
+        if (photonView != null && !photonView.IsMine)
+            return;
+
+        // If you want Ascension rules to affect healing, consult AscensionParticipant here.
+        // Example: var participant = GetComponent<AscensionParticipant>(); if (participant != null) { ... }
+
+        ApplyHeal(amount);
     }
 }
 
