@@ -72,6 +72,7 @@ MonoBehaviour:
   - RPC_UpdateWaitingVisual
   - RPC_SetOwnerActor
   - RPC_Heal
+  - RPC_BroadcastMaxHealth
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Events;
 using Photon.Pun;
 using TMPro;
 
@@ -16,6 +17,9 @@ using TMPro;
 [DisallowMultipleComponent]
 public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
 {
+    [Header("Events (Tarot/External)")]
+    [Tooltip("Invoked on the owner when any skill is successfully used (consumed full-charge).")]
+    public UnityEvent OnSkillUsed;
     [Header("Placement filters")]
     [Tooltip("Tags to ignore when raycasting for ability placement (e.g. Hitbox, Bullet, Untagged).")]
     public string[] placementIgnoredTags = new string[] { "Hitbox", "Bullet", "Untagged" };
@@ -53,7 +57,7 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
 
     // regen settings: +5 every 1 second
     private const float REGEN_INTERVAL = 1.0f;
-    private const float REGEN_AMOUNT = 50f;
+    private const float REGEN_AMOUNT = 10f;
 
     // internal state
     [SerializeField] private float currentCharge = 0f;
@@ -336,6 +340,17 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
             currentCharge = 0f;
             UpdateChargeBar();
             Debug.Log($"{characterName}: used full-charge skill. Charge now {currentCharge}/{maxCharge}");
+
+            // <-- NEW: notify listeners that a skill was used (owner instance)
+            try
+            {
+                if (OnSkillUsed != null)
+                    OnSkillUsed.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"CharacterSkills: OnSkillUsed invoke threw: {ex.Message}");
+            }
         }
         else
         {

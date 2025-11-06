@@ -536,6 +536,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 76049d373b92f5b4f8b69da27c44ad14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  OnSkillUsed:
+    m_PersistentCalls:
+      m_Calls: []
   placementIgnoredTags:
   - Hitbox
   - Bullet
@@ -630,6 +633,10 @@ MonoBehaviour:
   triadIndex: 0
   triadIndices: ffffffffffffffffffffffff
   deckQueue: 
+  playerMovement: {fileID: 5449171655669973306}
+  playerHealth: {fileID: 1876815963787415059}
+  localShooter: {fileID: 3861157846362048706}
+  playerSkills: {fileID: 5182713006342126434}
 --- !u!114 &4417420245621891631
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -15,6 +15,7 @@ public class PlayerHealth : MonoBehaviourPun
     [Header("HP")]
     [Tooltip("Maximum health. Default 150.")]
     public int maxHealth = 150;
+    private int originalMaxHealth = -1;
 
     private int currentHealth;
 
@@ -50,6 +51,7 @@ public class PlayerHealth : MonoBehaviourPun
     void Awake()
     {
         currentHealth = maxHealth;
+        if (originalMaxHealth <= 0) originalMaxHealth = maxHealth;
 
         // Hide the prefab's screen-space HUD on remote instances (so only the local player's HUD is visible).
         if (PhotonNetwork.InRoom)
@@ -293,7 +295,7 @@ public class PlayerHealth : MonoBehaviourPun
 
         ApplyDamage(amount, isHead);
     }
-    
+
     /// <summary>
     /// Called by local code (owner) to request a heal from a healer actor.
     /// This mirrors RequestTakeDamageFrom: only the owner executes local heals.
@@ -308,6 +310,55 @@ public class PlayerHealth : MonoBehaviourPun
         // Example: var participant = GetComponent<AscensionParticipant>(); if (participant != null) { ... }
 
         ApplyHeal(amount);
+    }
+
+    // ------------------ Add these methods near other RPCs / methods ------------------
+    /// <summary>
+    /// Apply a permanent strength-style boost to max HP and heal to full.
+    /// healthMultiplier: e.g. 3 => triple max health.
+    /// This runs on the owner (call from owner instance) and broadcasts the new values to remotes.
+    /// </summary>
+    public void ApplyStrengthBoost(float healthMultiplier)
+    {
+        if (originalMaxHealth <= 0) originalMaxHealth = maxHealth;
+
+        int newMax = Mathf.Max(1, Mathf.RoundToInt(originalMaxHealth * healthMultiplier));
+        maxHealth = newMax;
+
+        // restore/heal to full
+        currentHealth = maxHealth;
+        UpdateHpText();
+
+        Debug.Log($"[PlayerHealth] Strength applied. newMax={maxHealth}, current={currentHealth}");
+
+        // Broadcast the new max and current HP to remote clients so their UI keeps in sync.
+        if (photonView != null && photonView.IsMine)
+        {
+            try
+            {
+                photonView.RPC("RPC_BroadcastMaxHealth", RpcTarget.Others, maxHealth);
+                photonView.RPC("RPC_BroadcastHealth", RpcTarget.Others, currentHealth);
+            }
+            catch { /* ignore network issues */ }
+        }
+    }
+    
+    /// <summary>
+    /// RPC used by owner to tell other clients what the new maxHealth should be.
+    /// </summary>
+    [PunRPC]
+    public void RPC_BroadcastMaxHealth(int newMax)
+    {
+        // Only remote instances should update (owner already applied)
+        if (photonView != null && photonView.IsMine) return;
+
+        maxHealth = Mathf.Max(1, newMax);
+
+        // Clamp currentHealth if necessary and update UI.
+        currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
+        UpdateHpText();
+
+        Debug.Log($"[PlayerHealth] RPC_BroadcastMaxHealth received. newMax={newMax}");
     }
 }
 

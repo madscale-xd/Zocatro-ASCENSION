@@ -2,6 +2,7 @@
 using UnityEngine;
 using Photon.Pun;
 using System.Collections;
+using System;
 using TMPro;
 
 [DisallowMultipleComponent]
@@ -261,12 +262,27 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
     IEnumerator ReloadCoroutine()
     {
         if (isReloading) yield break;
+        // remember whether we started the reload from empty
+        bool wasEmpty = currentAmmo <= 0;
+
         isReloading = true;
         UpdateAmmoUI(true);
         yield return new WaitForSeconds(reloadTime);
         currentAmmo = maxAmmo;
         isReloading = false;
         UpdateAmmoUI();
+
+        // If we started reload from empty and we are the owner, notify local TarotSelection (Star card)
+        PhotonView pv = GetComponentInParent<PhotonView>();
+        bool isOwner = (pv == null) || !PhotonNetwork.InRoom || pv.IsMine;
+        if (wasEmpty && isOwner)
+        {
+            var tarot = GetComponentInParent<TarotSelection>();
+            if (tarot != null)
+            {
+                try { tarot.OnReloadedEmpty(); } catch (Exception ex) { Debug.LogWarning("[SimpleShooter] Tarot.OnReloadedEmpty threw: " + ex); }
+            }
+        }
     }
 
     void UpdateAmmoUI(bool showReloading = false)

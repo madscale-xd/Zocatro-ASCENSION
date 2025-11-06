@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.UI;
 using Photon.Pun;
 
@@ -70,8 +71,28 @@ public class TarotSelection : MonoBehaviour
 
     private const float INST_DATA_WAIT_SECONDS = 0.25f;
 
+    [Header("Owner-local component references (optional)")]
+    [Tooltip("Optional: reference to the PlayerMovement3D component on this player. If null the script will attempt to auto-find.")]
+    public PlayerMovement3D playerMovement;
+
+    [Tooltip("Optional: reference to the PlayerHealth component on this player. If null the script will attempt to auto-find.")]
+    public PlayerHealth playerHealth;
+
+    [Tooltip("Optional: reference to the SimpleShooter_PhotonSafe (local shooter) on this player. If null the script will attempt to auto-find.")]
+    public SimpleShooter_PhotonSafe localShooter;
+    // add to the "Owner-local component references (optional)" area
+    [Tooltip("Optional: reference to the CharacterSkills component on this player. If null the script will attempt to auto-find.")]
+    public CharacterSkills playerSkills;
+
+    // runtime flag for Star
+    [NonSerialized] public bool starAcquired = false;
+    private bool magicianAcquired = false;
+
+
     void Awake()
     {
+        if (playerSkills == null)
+            playerSkills = GetComponentInParent<CharacterSkills>();
         allCards = (TarotCard[])Enum.GetValues(typeof(TarotCard));
         PhotonView pv = GetComponentInParent<PhotonView>();
         isOwnerInstance = (pv == null) || !PhotonNetwork.InRoom || pv.IsMine;
@@ -121,6 +142,33 @@ public class TarotSelection : MonoBehaviour
                     TarotCards[i].SetActive(false);
             }
         }
+
+        // -----------------------
+        // Auto-find owner-local components (convenience)
+        // -----------------------
+        // If you assigned these in the inspector this block will be skipped.
+        if (isOwnerInstance)
+        {
+            if (playerHealth == null)
+                playerHealth = GetComponentInParent<PlayerHealth>();
+
+            if (playerMovement == null)
+                playerMovement = GetComponentInParent<PlayerMovement3D>();
+
+            if (localShooter == null)
+            {
+                // prefer same-root shooter if present
+                localShooter = GetComponentInParent<SimpleShooter_PhotonSafe>();
+                // fallback to the utility method (keeps compatibility with previous logic)
+                if (localShooter == null)
+                    localShooter = FindLocalShooter();
+            }
+        }
+
+        // inside the isOwnerInstance block in Awake() add:
+        if (playerSkills == null)
+            playerSkills = GetComponentInParent<CharacterSkills>();
+
 
         // Defensive: wait a small amount for instantiation data then fallback to other sources
         StartCoroutine(ApplyInstantiationDataOrFallbackRoutine());
@@ -303,6 +351,9 @@ public class TarotSelection : MonoBehaviour
                 // Activate owner-local gameplay effects
                 if (acquired == TarotCard.Justice) ActivateJusticeOnLocalShooter();
                 else if (acquired == TarotCard.Devil) ActivateDevilOnLocalShooter();
+                else if (acquired == TarotCard.Magician) ActivateMagicianOnLocalShooter();
+                else if (acquired == TarotCard.Strength) ActivateStrengthOnLocalShooter();
+                else if (acquired == TarotCard.Star) ActivateStarOnLocalShooter();
 
                 // Activate the visual for this acquired card (cumulative)
                 ActivateTarotVisualCumulative(acquired);
@@ -319,6 +370,9 @@ public class TarotSelection : MonoBehaviour
             {
                 if (acquired == TarotCard.Justice) ActivateJusticeOnLocalShooter();
                 else if (acquired == TarotCard.Devil) ActivateDevilOnLocalShooter();
+                else if (acquired == TarotCard.Magician) ActivateMagicianOnLocalShooter();
+                else if (acquired == TarotCard.Strength) ActivateStrengthOnLocalShooter();
+                else if (acquired == TarotCard.Star) ActivateStarOnLocalShooter();
 
                 // Activate the visual for this acquired card (cumulative)
                 ActivateTarotVisualCumulative(acquired);
@@ -589,6 +643,175 @@ public class TarotSelection : MonoBehaviour
         Debug.Log("[TarotSelection] Devil activated on local shooter.");
     }
 
+    void ActivateStrengthOnLocalShooter()
+    {
+        // Only run on owner instance
+        if (!isOwnerInstance)
+        {
+            Debug.LogWarning("[TarotSelection] ActivateStrength called on non-owner instance.");
+            return;
+        }
+
+        // 1) PlayerHealth: triple max HP & heal to full (owner-local + RPC broadcast)
+        if (playerHealth == null)
+        {
+            playerHealth = GetComponentInParent<PlayerHealth>();
+        }
+        if (playerHealth != null)
+        {
+            playerHealth.ApplyStrengthBoost(3f); // healthMultiplier = 3 => triple maxHealth & heal to full
+        }
+        else
+        {
+            Debug.LogWarning("[TarotSelection] ActivateStrength: PlayerHealth not found on local player.");
+        }
+
+        // 2) Movement speed: reduce to 1/3 of original (owner-local).
+        // Prefer to set the provided multiplier (PlayerMovement3D already multiplies base speeds by speedMultiplier).
+        if (playerMovement == null)
+        {
+            playerMovement = GetComponentInParent<PlayerMovement3D>();
+        }
+        if (playerMovement != null)
+        {
+            // set the runtime multiplier to 1/3
+            playerMovement.speedMultiplier = 1f / 3f;
+
+            // Optional: also scale base walk/run so other systems reading them see the change.
+            // Uncomment the following lines if you want the base speeds permanently adjusted:
+            // playerMovement.walkSpeed = playerMovement.walkSpeed * (1f / 3f);
+            // playerMovement.runSpeed = playerMovement.runSpeed * (1f / 3f);
+        }
+        else
+        {
+            Debug.LogWarning("[TarotSelection] ActivateStrength: PlayerMovement3D not found on local player.");
+        }
+
+        // 3) Shooter fire rate: interpret as slowing attack speed to 1/3 (increase delay by 3x)
+        if (localShooter == null)
+        {
+            localShooter = FindLocalShooter();
+        }
+        if (localShooter != null)
+        {
+            localShooter.SetFireRateMultiplier(3f); // originalFireRate * 3 => 1/3 firing frequency
+        }
+        else
+        {
+            Debug.LogWarning("[TarotSelection] ActivateStrength: SimpleShooter_PhotonSafe not found on local player.");
+        }
+
+        // Activate visual (existing behavior)
+        ActivateTarotVisualCumulative(TarotCard.Strength);
+
+        Debug.Log("[TarotSelection] Strength activated: maxHP x3, healed to full, movement=1/3, fireRate multiplier=3");
+    }
+
+    /// <summary>
+    /// Activate Star behaviour on the local owner: mark flag and (optional) visual feedback.
+    /// </summary>
+    void ActivateStarOnLocalShooter()
+    {
+        if (!isOwnerInstance)
+        {
+            Debug.LogWarning("[TarotSelection] ActivateStar called on non-owner instance.");
+            return;
+        }
+
+        // mark acquired
+        starAcquired = true;
+
+        // cache CharacterSkills reference if not already set
+        if (playerSkills == null)
+            playerSkills = GetComponentInParent<CharacterSkills>();
+
+        if (playerSkills == null)
+        {
+            Debug.LogWarning("[TarotSelection] ActivateStar: CharacterSkills not found on local player. The Star effect requires CharacterSkills.AddCharge to exist.");
+        }
+        else
+        {
+            Debug.Log("[TarotSelection] Star activated: reloading on empty will grant 25% of max charge.");
+        }
+
+        // Activate visual (if assigned)
+        ActivateTarotVisualCumulative(TarotCard.Star);
+    }
+
+    void ActivateMagicianOnLocalShooter()
+    {
+        if (!isOwnerInstance)
+        {
+            Debug.LogWarning("[TarotSelection] ActivateMagician called on non-owner instance.");
+            return;
+        }
+
+        // mark acquired
+        magicianAcquired = true;
+
+        // ensure local references
+        if (playerSkills == null) playerSkills = GetComponentInParent<CharacterSkills>();
+        if (localShooter == null) localShooter = FindLocalShooter();
+
+        // subscribe to the skill-used event if possible
+        if (playerSkills != null)
+        {
+            if (playerSkills.OnSkillUsed == null)
+                playerSkills.OnSkillUsed = new UnityEvent(); // defensive if inspector didn't serialize it
+            playerSkills.OnSkillUsed.AddListener(OnMagicianSkillUsed);
+        }
+        else
+        {
+            Debug.LogWarning("[TarotSelection] ActivateMagician: CharacterSkills not found on local player.");
+        }
+
+        // Visual + log (keeps same visual behavior)
+        ActivateTarotVisualCumulative(TarotCard.Magician);
+        Debug.Log("[TarotSelection] Magician activated: using any skill will reload to full.");
+    }
+
+    private void OnMagicianSkillUsed()
+    {
+        if (!isOwnerInstance) return;
+        if (localShooter == null) localShooter = FindLocalShooter();
+        if (localShooter != null)
+        {
+            localShooter.SetAmmo(localShooter.maxAmmo);
+            Debug.Log("[TarotSelection] Magician: reloaded to full on skill use.");
+        }
+        else
+        {
+            Debug.LogWarning("[TarotSelection] OnMagicianSkillUsed: local shooter not found to reload.");
+        }
+    }
+
+
+    /// <summary>
+    /// Called by the local shooter after a reload completes that was triggered while ammo was empty.
+    /// Grants 25% of max skill charge (calls CharacterSkills.AddCharge).
+    /// This function is owner-only; safe to call from SimpleShooter after reload finishes.
+    /// </summary>
+    public void OnReloadedEmpty()
+    {
+        if (!isOwnerInstance) return;
+        if (!starAcquired) return;
+
+        if (playerSkills == null)
+            playerSkills = GetComponentInParent<CharacterSkills>();
+
+        if (playerSkills == null)
+        {
+            Debug.LogWarning("[TarotSelection] OnReloadedEmpty: no CharacterSkills found to grant charge.");
+            return;
+        }
+
+        float grant = playerSkills.maxCharge * 0.25f; // 1/4 of max
+        playerSkills.AddCharge(grant);
+
+        Debug.Log($"[TarotSelection] OnReloadedEmpty: granted {grant} charge ({playerSkills.maxCharge} max).");
+    }
+
+
     SimpleShooter_PhotonSafe FindLocalShooter()
     {
         var shooters = GameObject.FindObjectsOfType<SimpleShooter_PhotonSafe>(true);
@@ -614,6 +837,12 @@ public class TarotSelection : MonoBehaviour
     void OnDestroy()
     {
         if (fadeCoroutine != null) StopCoroutine(fadeCoroutine);
+
+        // unsubscribe magician listener if present
+        if (playerSkills != null && playerSkills.OnSkillUsed != null)
+        {
+            try { playerSkills.OnSkillUsed.RemoveListener(OnMagicianSkillUsed); } catch { }
+        }
     }
 
     // Public helpers to inspect runtime triad programmatically
