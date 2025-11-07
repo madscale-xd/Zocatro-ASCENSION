@@ -1,15 +1,8 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using Photon.Pun;
-using System;
 
-/// <summary>
-/// Cannonball (robust spawn):
-/// - Reads instantiation data: [0] ownerActor (int), [1] damage (float), [2] radius (float)
-/// - Has a short arming delay to avoid exploding immediately if spawned overlapping geometry
-/// - Attempts to nudge itself upward if overlapping on spawn
-/// - Owner-authoritative explosion (only the owner actually performs the AoE and destroys the network object)
-/// </summary>
 [RequireComponent(typeof(Rigidbody))]
 public class Cannonball : MonoBehaviourPun
 {
@@ -19,11 +12,8 @@ public class Cannonball : MonoBehaviourPun
     public float lifetime = 8f;
 
     [Header("Safety / arming")]
-    [Tooltip("Seconds to wait before cannonball can explode from collisions (prevents instant death when spawned overlapping).")]
     public float armDelay = 0.06f;
-    [Tooltip("If the cannonball is overlapping geometry on spawn, it will be nudged upward this many meters per attempt.")]
     public float overlapNudge = 0.5f;
-    [Tooltip("Maximum number of nudge attempts to free the cannonball from overlaps.")]
     public int maxNudgeAttempts = 6;
 
     private bool armed = false;
@@ -36,11 +26,11 @@ public class Cannonball : MonoBehaviourPun
         myCollider = GetComponent<Collider>();
         rb = GetComponent<Rigidbody>();
 
-        // If OwnedEntity is present, prefer its owner
+        // OwnedEntity preference (if you use it)
         var oe = GetComponent<OwnedEntity>();
-        if (oe != null && oe.ownerActor >= 0)
-            ownerActor = oe.ownerActor;
+        if (oe != null && oe.ownerActor >= 0) ownerActor = oe.ownerActor;
 
+        // Read InstantiationData robustly if present
         if (photonView != null && photonView.InstantiationData != null)
         {
             var d = photonView.InstantiationData;
@@ -48,17 +38,20 @@ public class Cannonball : MonoBehaviourPun
             {
                 try { ownerActor = Convert.ToInt32(d[0]); } catch { }
             }
-            if (d.Length >= 2 && (d[1] is float || d[1] is double || d[1] is int))
+            if (d.Length >= 2)
             {
-                damage = Convert.ToSingle(d[1]);
+                try { damage = Convert.ToSingle(d[1]); } catch { }
             }
-            if (d.Length >= 3 && (d[2] is float || d[2] is double || d[2] is int))
+            if (d.Length >= 3)
             {
-                radius = Convert.ToSingle(d[2]);
+                try { radius = Convert.ToSingle(d[2]); } catch { }
+            }
+            if (d.Length >= 4)
+            {
+                try { lifetime = Convert.ToSingle(d[3]); } catch { }
             }
         }
 
-        // schedule destruction in case it never collides
         Destroy(gameObject, lifetime);
     }
 
@@ -69,34 +62,25 @@ public class Cannonball : MonoBehaviourPun
 
     private IEnumerator ArmAndPrepareCoroutine()
     {
-        // small attempt to free overlapping spawn
+        // try to nudge out of overlaps
         if (myCollider != null)
         {
-            // compute approximate probe radius
             float probeRadius = Mathf.Max(myCollider.bounds.extents.x, myCollider.bounds.extents.y, myCollider.bounds.extents.z);
             int attempts = 0;
-            // Use QueryTriggerInteraction.Ignore so triggers don't count
             while (attempts < maxNudgeAttempts && Physics.CheckSphere(transform.position, probeRadius, ~0, QueryTriggerInteraction.Ignore))
             {
                 transform.position += Vector3.up * overlapNudge;
                 attempts++;
-                // tiny wait to allow physics to catch up if something else is moving
                 yield return null;
             }
         }
 
-        // short arming delay to ensure any residual immediate collisions are ignored
         yield return new WaitForSeconds(armDelay);
         armed = true;
 
-        // ensure it is falling if a rigidbody exists
         if (rb != null)
         {
-            // small downward impulse if it's stationary to start motion
-            if (rb.velocity.sqrMagnitude < 0.01f)
-                rb.AddForce(Vector3.down * 1f, ForceMode.VelocityChange);
-
-            // enable continuous collision detection for accuracy
+            if (rb.velocity.sqrMagnitude < 0.01f) rb.AddForce(Vector3.down * 1f, ForceMode.VelocityChange);
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         }
     }
@@ -105,11 +89,14 @@ public class Cannonball : MonoBehaviourPun
     {
         if (!armed) return;
         if (exploded) return;
-        // Owner-authoritative: only the owner should perform the explosion when networked
-        if (PhotonNetwork.InRoom && photonView != null)
-        {
-            if (!photonView.IsMine) return;
-        }
+
+        // only consider valid collision targets (tagged Player or Ground in hierarchy)
+        if (!IsValidExplodeCollider(collision.collider)) return;
+
+        // Owner-authoritative explosion: only the network owner of this cannonball should explode it
+        if (PhotonNetwork.InRoom && photonView != null && !photonView.IsMine)
+            return;
+
         Explode();
     }
 
@@ -117,11 +104,32 @@ public class Cannonball : MonoBehaviourPun
     {
         if (!armed) return;
         if (exploded) return;
-        if (PhotonNetwork.InRoom && photonView != null)
-        {
-            if (!photonView.IsMine) return;
-        }
+
+        if (!IsValidExplodeCollider(other)) return;
+
+        if (PhotonNetwork.InRoom && photonView != null && !photonView.IsMine)
+            return;
+
         Explode();
+    }
+
+    /// <summary>
+    /// Walks up the transform chain looking for a "Player" or "Ground" tag.
+    /// Returns true if any parent (including the collider's GameObject) has one of those tags.
+    /// </summary>
+    private bool IsValidExplodeCollider(Collider col)
+    {
+        if (col == null) return false;
+
+        Transform t = col.transform;
+        while (t != null)
+        {
+            if (t.CompareTag("Player") || t.CompareTag("Ground"))
+                return true;
+            t = t.parent;
+        }
+
+        return false;
     }
 
     private void Explode()
@@ -129,7 +137,7 @@ public class Cannonball : MonoBehaviourPun
         if (exploded) return;
         exploded = true;
 
-        // AoE damage - skip owner's actor/objects
+        // AoE damage - owner-authoritative (skip owner's own actor/objects)
         Collider[] cols = Physics.OverlapSphere(transform.position, radius);
         foreach (var c in cols)
         {
@@ -139,23 +147,44 @@ public class Cannonball : MonoBehaviourPun
             // Skip self
             if (target == gameObject) continue;
 
-            // skip owner by Photon actor
-            var pv = target.GetComponentInParent<PhotonView>();
-            if (pv != null && pv.Owner != null && ownerActor >= 0 && pv.Owner.ActorNumber == ownerActor)
-                continue;
+            // Try find PlayerHealth and PhotonView on parent
+            var targetPv = target.GetComponentInParent<PhotonView>();
+            var ph = target.GetComponentInParent<PlayerHealth>();
 
-            // skip if target equals OwnedEntity.ownerGameObject (if we have OwnedEntity on this cannonball)
-            var oe = GetComponent<OwnedEntity>();
-            if (oe != null && oe.ownerGameObject != null && target == oe.ownerGameObject)
-                continue;
+            // If PhotonView + owner present and PlayerHealth exists -> use RPC to victim owner
+            if (targetPv != null && targetPv.Owner != null && ph != null)
+            {
+                int actorNum = targetPv.Owner.ActorNumber;
 
-            // Skip PlayerIdentity match (local/offline)
-            var pid = target.GetComponentInParent<PlayerIdentity>();
-            if (pid != null && ownerActor >= 0 && pid.actorNumber == ownerActor)
-                continue;
+                // skip if target is the same actor as the cannonball owner
+                if (ownerActor >= 0 && actorNum == ownerActor) continue;
 
-            // apply damage (best-effort)
-            target.SendMessage("TakeDamage", damage, SendMessageOptions.DontRequireReceiver);
+                try
+                {
+                    // PlayerHealth.RPC_TakeDamage signature: (int amount, bool isHead, int attackerActorNumber)
+                    int amountInt = Mathf.RoundToInt(damage);
+                    targetPv.RPC("RPC_TakeDamage", targetPv.Owner, amountInt, false, ownerActor);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("[Cannonball] Explosion RPC failed, applying locally: " + ex);
+                    ph.TakeDamage(Mathf.RoundToInt(damage), false);
+                }
+            }
+            else if (ph != null)
+            {
+                // Local-only player (no PhotonView owner) - apply damage directly
+                ph.TakeDamage(Mathf.RoundToInt(damage), false);
+            }
+            else
+            {
+                // Not a player - forward to other systems if they support TakeDamage
+                try
+                {
+                    target.SendMessage("TakeDamage", Mathf.RoundToInt(damage), SendMessageOptions.DontRequireReceiver);
+                }
+                catch { }
+            }
         }
 
         // TODO: spawn VFX / SFX here
@@ -184,12 +213,10 @@ public class Cannonball : MonoBehaviourPun
         var oe = GetComponent<OwnedEntity>();
         if (oe != null) oe.InitializeFromSpawner(ownerActor_, ownerGO_);
 
-        // schedule destruction (override)
         CancelInvoke();
         Destroy(gameObject, lifetime);
     }
 
-    // Optional: editor gizmo to see explosion radius
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.red;

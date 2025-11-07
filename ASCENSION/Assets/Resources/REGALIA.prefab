@@ -536,6 +536,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 76049d373b92f5b4f8b69da27c44ad14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  OnSkillUsed:
+    m_PersistentCalls:
+      m_Calls: []
   placementIgnoredTags:
   - Hitbox
   - Bullet
