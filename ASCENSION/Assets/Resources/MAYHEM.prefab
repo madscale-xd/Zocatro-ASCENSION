@@ -638,6 +638,7 @@ MonoBehaviour:
   playerHealth: {fileID: 1876815963787415059}
   localShooter: {fileID: 3861157846362048706}
   playerSkills: {fileID: 5182713006342126434}
+  playerIdentity: {fileID: 4417420245621891631}
 --- !u!114 &4417420245621891631
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -651,6 +652,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   actorNumber: -1
+  tarotSelection: {fileID: 0}
 --- !u!114 &1029051020830529080
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -7,7 +7,6 @@ using UnityEngine.UI;
 using Photon.Pun;
 using Photon.Realtime;
 using ExitGames.Client.Photon;
-using Hashtable = ExitGames.Client.Photon.Hashtable;
 using TMPro;
 
 /// <summary>
@@ -15,7 +14,12 @@ using TMPro;
 /// - when countdown expires, ask EVERY client to lock their triad locally (RPC),
 /// - wait for all players to report a triad (or timeout),
 /// - then master triggers PhotonNetwork.LoadLevel(sessionSceneName).
-/// Includes diagnostic logs to help trace issues.
+/// 
+/// Changes made to preserve authoritative triad mappings across scenes:
+/// - Master will NOT clear existing "triad_<actor>" room properties anymore.
+/// - When receiving a triad report, the master will **only write the room mapping if none exists yet**.
+///   If a mapping already exists it will be left untouched (previous reports survive).
+/// - More logging added so you can see when an existing mapping is preserved vs overwritten.
 /// </summary>
 public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
 {
@@ -122,7 +126,7 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
         string newName = playerNameInput.text.Trim();
         if (string.IsNullOrEmpty(newName)) return;
 
-        Hashtable props = new Hashtable
+        ExitGames.Client.Photon.Hashtable props = new ExitGames.Client.Photon.Hashtable
         {
             { "playerName_" + PhotonNetwork.LocalPlayer.ActorNumber, newName }
         };
@@ -144,7 +148,7 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
 
         if (PhotonNetwork.InRoom)
         {
-            PhotonNetwork.CurrentRoom.SetCustomProperties(new Hashtable
+            PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable
             {
                 { K_START, null },
                 { K_DUR, null }
@@ -200,6 +204,32 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
             {
                 triadReportedActors.Add(actorNumber);
                 Debug.Log($"[CompactRoomSessionStarter] Received triad report from actor {actorNumber} -> ({t0},{t1},{t2}). ReportedCount={triadReportedActors.Count}");
+
+                // **IMPORTANT:** write authoritative room mapping for this actor ONLY IF none exists yet.
+                try
+                {
+                    string roomKey = "triad_" + actorNumber; // room-level mapping key
+                    var roomProps = PhotonNetwork.CurrentRoom?.CustomProperties;
+                    bool hasExisting = roomProps != null && roomProps.ContainsKey(roomKey) && roomProps[roomKey] != null;
+
+                    if (hasExisting)
+                    {
+                        Debug.Log($"[CompactRoomSessionStarter] Room mapping for '{roomKey}' already exists. Preserving existing mapping and NOT overwriting. Existing value: {roomProps[roomKey]}");
+                    }
+                    else
+                    {
+                        ExitGames.Client.Photon.Hashtable roomProp = new ExitGames.Client.Photon.Hashtable
+                        {
+                            { roomKey, new object[] { t0, t1, t2 } }
+                        };
+                        PhotonNetwork.CurrentRoom?.SetCustomProperties(roomProp);
+                        Debug.Log($"[CompactRoomSessionStarter] Wrote room property '{roomKey}' = ({t0},{t1},{t2})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("[CompactRoomSessionStarter] Failed to write room triad mapping: " + ex.Message);
+                }
             }
             else
             {
@@ -216,7 +246,7 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
         if (!PhotonNetwork.IsMasterClient) return;
 
         double start = PhotonNetwork.Time;
-        PhotonNetwork.CurrentRoom?.SetCustomProperties(new Hashtable
+        PhotonNetwork.CurrentRoom?.SetCustomProperties(new ExitGames.Client.Photon.Hashtable
         {
             { K_START, start },
             { K_DUR, duration }
@@ -244,7 +274,7 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
                 // Cancel countdown props first (cleans up UI)
                 photonView.RPC(nameof(RPC_CancelCountdown), RpcTarget.All);
 
-                // Clear previous reports
+                // Clear previous reports for this run (keep room mappings)
                 lock (triadReportLock)
                 {
                     triadReportedActors.Clear();
@@ -260,16 +290,14 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
                     Debug.LogWarning("[CompactRoomSessionStarter] RPC_RequestLockTriadLocal failed: " + ex.Message);
                 }
 
-                // 2) Wait until either all players have reported PROP_TRIAD in their custom properties OR we receive reports from all players OR triadLockTimeout reached.
+                // 2) Wait until either all players have reported (triadReportedActors) OR authoritative room mapping exists for each actor OR timeout
                 float deadline = Time.realtimeSinceStartup + triadLockTimeout;
                 bool allReady = false;
 
                 while (Time.realtimeSinceStartup < deadline)
                 {
-                    // quick check: are we master and in room?
                     if (!PhotonNetwork.InRoom) break;
 
-                    // Compute readiness
                     allReady = true;
                     var players = PhotonNetwork.PlayerList;
                     foreach (var p in players)
@@ -280,10 +308,9 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
                             reported = triadReportedActors.Contains(p.ActorNumber);
                         }
 
-                        // also consider them ready if they already had the triad in their custom props
-                        bool hasProp = p.CustomProperties != null && p.CustomProperties.ContainsKey(PhotonKeys.PROP_TRIAD);
+                        bool hasRoomMap = PhotonNetwork.CurrentRoom != null && PhotonNetwork.CurrentRoom.CustomProperties.ContainsKey("triad_" + p.ActorNumber) && PhotonNetwork.CurrentRoom.CustomProperties["triad_" + p.ActorNumber] != null;
 
-                        if (!reported && !hasProp)
+                        if (!reported && !hasRoomMap)
                         {
                             allReady = false;
                             break;
@@ -296,7 +323,7 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
                 }
 
                 if (allReady)
-                    Debug.Log("[CompactRoomSessionStarter] All players reported triads (or had triad props). Proceeding to scene load.");
+                    Debug.Log("[CompactRoomSessionStarter] All players reported triads (or room mappings exist). Proceeding to scene load.");
                 else
                     Debug.LogWarning("[CompactRoomSessionStarter] Not all players reported triads before timeout; proceeding to scene load anyway.");
 
@@ -431,7 +458,7 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
         UpdateButtonInteractables();
     }
 
-    public override void OnRoomPropertiesUpdate(Hashtable propertiesThatChanged)
+    public override void OnRoomPropertiesUpdate(ExitGames.Client.Photon.Hashtable propertiesThatChanged)
     {
         base.OnRoomPropertiesUpdate(propertiesThatChanged);
         RefreshPlayerList();

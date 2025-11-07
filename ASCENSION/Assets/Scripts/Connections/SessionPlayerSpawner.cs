@@ -3,7 +3,7 @@ using System.Collections;
 using UnityEngine;
 using Photon.Pun;
 using Photon.Realtime;
-using ExitGames.Client.Photon; // Hashtable
+using ExitGames.Client.Photon; // still include for other uses
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -33,6 +33,10 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
     // Instance guard so we don't spawn multiple times if Start + OnJoinedRoom both fire
     private bool hasSpawned = false;
     private Coroutine spawnRoutine;
+
+    // triad PlayerPrefs key (matches CharacterSelector)
+    private const string PREF_KEY_TRIAD = "characterTriad";
+    private const string PROP_TRIAD = "characterTriad"; // custom property key used by CharacterSelector
 
     void Start()
     {
@@ -166,9 +170,9 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
         }
 
         // triad fallback from PlayerPrefs (CSV string)
-        if (PlayerPrefs.HasKey(PhotonKeys.PREF_KEY_TRIAD))
+        if (PlayerPrefs.HasKey(PREF_KEY_TRIAD))
         {
-            string triCsv = PlayerPrefs.GetString(PhotonKeys.PREF_KEY_TRIAD, null);
+            string triCsv = PlayerPrefs.GetString(PREF_KEY_TRIAD, null);
             if (!string.IsNullOrEmpty(triCsv))
             {
                 var parts = triCsv.Split(',');
@@ -178,12 +182,31 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
             }
 
             // If Photon connected and LocalPlayer props lack triad, push PlayerPrefs triad into LocalPlayer props
-            if (havePhoton && PhotonNetwork.LocalPlayer != null &&
-                (PhotonNetwork.LocalPlayer.CustomProperties == null || !PhotonNetwork.LocalPlayer.CustomProperties.ContainsKey(PhotonKeys.PROP_TRIAD)))
+            if (havePhoton && PhotonNetwork.LocalPlayer != null)
             {
-                object[] triObj = new object[] { tri0, tri1, tri2 };
-                PhotonNetwork.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { PhotonKeys.PROP_TRIAD, triObj } });
-                Debug.Log($"SessionPlayerSpawner: pushed PlayerPrefs triad into LocalPlayer custom props ({tri0},{tri1},{tri2}).");
+                var localProps = PhotonNetwork.LocalPlayer.CustomProperties;
+                bool hasTriadProp = localProps != null && localProps.ContainsKey(PhotonKeys.PROP_TRIAD);
+                if (!hasTriadProp)
+                {
+                    object[] triObj = new object[] { tri0, tri1, tri2 };
+                    PhotonNetwork.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { { PhotonKeys.PROP_TRIAD, triObj } });
+                    Debug.Log($"SessionPlayerSpawner: pushed PlayerPrefs triad into LocalPlayer custom props ({tri0},{tri1},{tri2}).");
+                }
+                else
+                {
+                    Debug.Log("SessionPlayerSpawner: LocalPlayer already had triad custom prop, not overwriting with PlayerPrefs.");
+                }
+            }
+        }
+
+        // ATTEMPT: if we still don't have triad in local props, try the authoritative room mapping written by master: "triad_<actorNumber>"
+        if (havePhoton && (tri0 < 0 && tri1 < 0 && tri2 < 0) && PhotonNetwork.CurrentRoom != null)
+        {
+            string roomKey = "triad_" + PhotonNetwork.LocalPlayer.ActorNumber;
+            if (PhotonNetwork.CurrentRoom.CustomProperties != null && PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(roomKey, out object objRoomTriad))
+            {
+                ParseTriadObject(objRoomTriad, ref tri0, ref tri1, ref tri2);
+                Debug.Log($"SessionPlayerSpawner: Read authoritative room mapping '{roomKey}' -> ({tri0},{tri1},{tri2})");
             }
         }
 
@@ -223,7 +246,7 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
         var resCheck = Resources.Load<GameObject>(prefabNameToUse);
         if (resCheck == null)
         {
-            Debug.LogWarning($"SessionPlayerSpawner: Prefab named '{prefabNameToUse}' was NOT found under any Resources folder. PhotonNetwork.Instantiate will fail unless you register a PrefabPool that can provide this prefab.");
+            Debug.LogWarning($"SessionPlayerSpawner: Prefab named '{prefabNameToUse}' was NOT found under any Resources folder. PhotonNetwork.Instantiate will fail at runtime unless you register a PrefabPool that can provide this prefab.");
         }
 
         // Compute spawn position/rotation
@@ -238,9 +261,12 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
 
         // Instantiate via Photon and pass the chosenIndex and triad indices as instantiationData
         GameObject player = null;
+
         try
         {
-            object[] instantiationData = new object[] { chosenIndex, tri0, tri1, tri2 };
+            // include local actorNumber as the 5th param to make it explicit who this triad belongs to
+            int myActor = havePhoton && PhotonNetwork.LocalPlayer != null ? PhotonNetwork.LocalPlayer.ActorNumber : -1;
+            object[] instantiationData = new object[] { chosenIndex, tri0, tri1, tri2, myActor };
             player = PhotonNetwork.Instantiate(prefabNameToUse, spawnPos, spawnRot, 0, instantiationData);
         }
         catch (System.Exception ex)
@@ -266,14 +292,25 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
     // Utility: parse triad object from Photon custom properties (supports int[], object[] or comma string)
     private void ParseTriadObject(object obj, ref int a, ref int b, ref int c)
     {
+        a = b = c = -1;
         if (obj == null) return;
 
+        // handle numeric arrays (Photon may give long[] depending on serialization)
         if (obj is int[])
         {
             var arr = (int[])obj;
-            if (arr.Length > 0) a = arr.Length > 0 ? arr[0] : -1;
-            if (arr.Length > 1) b = arr.Length > 1 ? arr[1] : -1;
-            if (arr.Length > 2) c = arr.Length > 2 ? arr[2] : -1;
+            if (arr.Length > 0) a = arr[0];
+            if (arr.Length > 1) b = arr[1];
+            if (arr.Length > 2) c = arr[2];
+            return;
+        }
+
+        if (obj is long[])
+        {
+            var arr = (long[])obj;
+            if (arr.Length > 0) a = (int)arr[0];
+            if (arr.Length > 1) b = (int)arr[1];
+            if (arr.Length > 2) c = (int)arr[2];
             return;
         }
 
@@ -294,7 +331,6 @@ public class SessionPlayerSpawner : MonoBehaviourPunCallbacks
             if (parts.Length > 0) int.TryParse(parts[0], out a);
             if (parts.Length > 1) int.TryParse(parts[1], out b);
             if (parts.Length > 2) int.TryParse(parts[2], out c);
-            return;
         }
     }
 

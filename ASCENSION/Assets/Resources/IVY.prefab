@@ -721,6 +721,7 @@ MonoBehaviour:
   playerHealth: {fileID: 1876815963787415059}
   localShooter: {fileID: 3861157846362048706}
   playerSkills: {fileID: 5182713006342126434}
+  playerIdentity: {fileID: 4417420245621891631}
 --- !u!114 &4417420245621891631
 MonoBehaviour:
   m_ObjectHideFlags: 0
