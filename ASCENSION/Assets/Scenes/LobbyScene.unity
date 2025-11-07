@@ -295,8 +295,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: CREATE!
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: c3c6f7e9645ea954a83130475b99462e, type: 2}
-  m_sharedMaterial: {fileID: 7167288938214541037, guid: c3c6f7e9645ea954a83130475b99462e, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: ebdacf541036c48479dae9059f864bc8, type: 2}
+  m_sharedMaterial: {fileID: 5498928624035259223, guid: ebdacf541036c48479dae9059f864bc8, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -396,8 +396,8 @@ RectTransform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 113996103}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 555}
-  m_LocalScale: {x: 21.519245, y: 11.864831, z: 11.864831}
+  m_LocalPosition: {x: 0, y: 0, z: 528.02}
+  m_LocalScale: {x: 19.427145, y: 10.711332, z: 10.711332}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 482473803}
@@ -428,7 +428,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: a54dfb94e8bee864ab0c59bd81c40a29, type: 3}
+  m_Sprite: {fileID: 21300000, guid: afb762df3ebd2b741865d2fedf1d5b15, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
@@ -1033,7 +1033,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -0.8, y: -11}
+  m_AnchoredPosition: {x: -0.0000013113, y: -0.00000095367}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &482473804
@@ -1056,10 +1056,10 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Now Loading...
+  m_text: NOW LOADING...
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: c3c6f7e9645ea954a83130475b99462e, type: 2}
-  m_sharedMaterial: {fileID: 7167288938214541037, guid: c3c6f7e9645ea954a83130475b99462e, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: 99dab690e219a2a4aa3399362913cbc1, type: 2}
+  m_sharedMaterial: {fileID: 3118663580725622233, guid: 99dab690e219a2a4aa3399362913cbc1, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -1083,15 +1083,15 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 25
-  m_fontSizeBase: 25
+  m_fontSize: 23.87
+  m_fontSizeBase: 23.87
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 0
   m_HorizontalAlignment: 2
-  m_VerticalAlignment: 256
+  m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
   m_wordSpacing: 0
