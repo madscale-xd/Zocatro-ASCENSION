@@ -20,6 +20,10 @@ public class PlayerStatus : MonoBehaviourPun
     [Tooltip("Time (seconds) to go from 0 -> pulseAlpha (and also for pulseAlpha -> 0).")]
     public float homeostasisPulseStepDuration = 0.25f;
 
+    [Header("Rooting (movement)")]
+    [Tooltip("Optional: reference to PlayerMovement3D on this player. If left null the script will attempt to auto-find one at runtime.")]
+    public PlayerMovement3D playerMovement;
+
     // internal
     private Coroutine homeostasisPulseCoroutine;
 
@@ -28,7 +32,12 @@ public class PlayerStatus : MonoBehaviourPun
     bool stopHealingActive = false;
     bool invulnerable = false;
 
-    Coroutine rootCoroutine;
+    // single root coroutine & remaining time approach
+    private Coroutine rootCoroutine;
+    private float rootRemaining = 0f;
+    private bool movementWasEnabledBeforeRoot = false;
+    private bool movementStateCaptured = false; // ensures we capture enabled state only once
+
     Coroutine stopHealCoroutine;
     Coroutine homeostasisCoroutine;
 
@@ -47,6 +56,7 @@ public class PlayerStatus : MonoBehaviourPun
     [PunRPC]
     public void RPC_ApplyRoot(float duration, int attackerActorNumber)
     {
+        // This RPC should run on the victim owner's client (photon target)
         ApplyRootLocal(duration);
     }
 
@@ -58,20 +68,64 @@ public class PlayerStatus : MonoBehaviourPun
 
     public void ApplyRootLocal(float duration)
     {
-        if (rootCoroutine != null) StopCoroutine(rootCoroutine);
-        rootCoroutine = StartCoroutine(RootRoutine(duration));
+        // Defensive: clamp
+        if (duration <= 0f) return;
+
+        // If no explicit playerMovement assigned, try to find it now (owner-local)
+        if (playerMovement == null)
+            playerMovement = GetComponentInChildren<PlayerMovement3D>(true) ?? GetComponent<PlayerMovement3D>();
+
+        // If a root coroutine is already running, extend remaining time (take the max)
+        rootRemaining = Mathf.Max(rootRemaining, duration);
+
+        if (rootCoroutine == null)
+        {
+            // Start the single coroutine that will run until rootRemaining reaches zero
+            rootCoroutine = StartCoroutine(RootCountdownCoroutine());
+        }
     }
 
-    IEnumerator RootRoutine(float dur)
+    private IEnumerator RootCountdownCoroutine()
     {
+        // Capture initial state once (so multiple ApplyRootLocal calls won't overwrite the saved state)
+        if (!movementStateCaptured)
+        {
+            movementWasEnabledBeforeRoot = (playerMovement != null) ? playerMovement.enabled : true;
+            movementStateCaptured = true;
+        }
+
         isRooted = true;
+
+        // Disable movement (owner-local).
+        if (playerMovement != null)
+        {
+            try { playerMovement.enabled = false; } catch { }
+        }
+        // Legacy compatibility: keep SetImmobilized SendMessage for other systems
         gameObject.SendMessage("SetImmobilized", true, SendMessageOptions.DontRequireReceiver);
 
-        yield return new WaitForSeconds(dur);
+        // Keep counting down while rootRemaining > 0. New ApplyRootLocal calls will raise rootRemaining.
+        while (rootRemaining > 0f)
+        {
+            float dt = Time.deltaTime;
+            rootRemaining = Mathf.Max(0f, rootRemaining - dt);
+            yield return null;
+        }
 
+        // restore movement / un-immobilize
+        if (playerMovement != null)
+        {
+            try { playerMovement.enabled = movementWasEnabledBeforeRoot; } catch { }
+        }
+
+        // restore legacy hook as well (if used)
         gameObject.SendMessage("SetImmobilized", false, SendMessageOptions.DontRequireReceiver);
+
+        // cleanup
         isRooted = false;
         rootCoroutine = null;
+        movementStateCaptured = false;
+        rootRemaining = 0f;
     }
 
     public void StopHealingLocal(float duration)
@@ -93,7 +147,7 @@ public class PlayerStatus : MonoBehaviourPun
     }
     #endregion
 
-    #region Homeostasis (no immobilize)
+    #region Homeostasis (no immobilize) - UNTOUCHED (kept original)
     public void StartHomeostasis(float shieldAmount, float healAmount, float duration)
     {
         // Start only on the owner — this is expected; but be defensive.

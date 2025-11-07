@@ -39,7 +39,7 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
     public Transform visualTarget;
 
     [Header("Misc")]
-    public bool networkVisual = false;
+    public bool networkVisual = false; // reserved
 
     // internals
     SphereCollider sphere;
@@ -48,7 +48,6 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
     HashSet<int> damagedActorNumbers = new HashSet<int>();
     HashSet<int> damagedInstanceIds = new HashSet<int>();
 
-    Collider[] ownerColliders;
     Collider[] myColliders;
 
     Vector3 visualBaseScale = Vector3.one;
@@ -59,7 +58,6 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
 
     void Awake()
     {
-        // components
         sphere = GetComponent<SphereCollider>();
         if (sphere == null) sphere = gameObject.AddComponent<SphereCollider>();
         sphere.isTrigger = true;
@@ -74,7 +72,6 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
         // find visual target if not assigned
         if (visualTarget == null)
         {
-            // try to find child MeshRenderer or a child named "Visual"
             var named = transform.Find("Visual");
             if (named != null) visualTarget = named;
             else
@@ -87,8 +84,6 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
         if (visualTarget != null)
         {
             visualBaseScale = visualTarget.localScale;
-            // if you know the mesh's base radius (unity sphere primitive uses 0.5), you can set visualBaseRadius accordingly.
-            // We assume 0.5 here (Unity sphere primitive default radius).
             visualBaseRadius = 0.5f;
         }
 
@@ -98,7 +93,7 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
         else
             sphere.radius = 0.01f;
 
-        // Read instantiation data (only positive values override prefab defaults)
+        // Read instantiation data (ownerActorNumber, optional overrides)
         var pv = GetComponent<PhotonView>();
         if (pv != null && pv.InstantiationData != null)
         {
@@ -126,46 +121,15 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
             }
         }
 
-        // owner colliders lookup (existing logic)
-        if (ownerActorNumber >= 0)
-        {
-            var allPVs = FindObjectsOfType<PhotonView>();
-            foreach (var p in allPVs)
-            {
-                if (p.Owner != null && p.Owner.ActorNumber == ownerActorNumber)
-                {
-                    ownerColliders = p.GetComponentsInChildren<Collider>(true);
-                    break;
-                }
-            }
-        }
-
+        // Try to resolve an ownerGameObject (optional). Not required for the OwnerID-check path.
         var oe = GetComponent<OwnedEntity>();
         if (oe != null && oe.ownerGameObject != null)
         {
             ownerGameObject = oe.ownerGameObject;
             ownerActorNumber = (oe.ownerActor >= 0) ? oe.ownerActor : ownerActorNumber;
-            ownerColliders = ownerGameObject.GetComponentsInChildren<Collider>(true);
         }
 
-        if (ownerColliders != null && ownerColliders.Length > 0 && myColliders != null)
-        {
-            foreach (var a in myColliders)
-                foreach (var b in ownerColliders)
-                    if (a != null && b != null) Physics.IgnoreCollision(a, b, true);
-            StartCoroutine(ReenableOwnerCollisionsAfter(0.18f));
-        }
-
-        Debug.Log($"[Pulse Awake] visualOnly={visualOnly} colliderFixedRadius={colliderFixedRadius} targetRadius={targetRadius} expandDuration={expandDuration}");
-    }
-
-    IEnumerator ReenableOwnerCollisionsAfter(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        if (ownerColliders == null || myColliders == null) yield break;
-        foreach (var a in myColliders)
-            foreach (var b in ownerColliders)
-                if (a != null && b != null) Physics.IgnoreCollision(a, b, false);
+        Debug.Log($"[Pulse Awake] visualOnly={visualOnly} colliderFixedRadius={colliderFixedRadius} targetRadius={targetRadius} expandDuration={expandDuration} owner={ownerActorNumber}");
     }
 
     void Start()
@@ -186,36 +150,24 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
             float r = Mathf.Lerp(0.01f, targetRadius, t);
 
             if (!visualOnly)
-            {
-                // update collider radius to reflect effect area
                 sphere.radius = r;
-            }
             else
-            {
-                // keep collider fixed
                 sphere.radius = colliderFixedRadius;
-            }
 
-            // scale only the visual target (so collider is unaffected)
             if (visualTarget != null)
             {
-                // visualBaseRadius is assumed base radius (0.5 for default Unity sphere). If your visual differs, adjust.
                 float scaleFactor = (r / visualBaseRadius);
                 visualTarget.localScale = Vector3.Scale(visualBaseScale, Vector3.one * scaleFactor);
             }
-            else
-            {
-                // If no visual target assigned, DO NOT scale root (to avoid changing collider).
-                // But we still set transform.localScale lightly if you absolutely must - here we avoid it.
-            }
+
+            // runtime overlap checks to catch moving targets (deduplicated by damaged sets)
+            DoOverlapCheck(r);
 
             yield return null;
         }
 
-        // hold final radius for a short time
+        // final radius & final overlap pass
         expanding = false;
-
-        // set final values
         if (!visualOnly) sphere.radius = targetRadius;
         else sphere.radius = colliderFixedRadius;
 
@@ -225,17 +177,115 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
             visualTarget.localScale = Vector3.Scale(visualBaseScale, Vector3.one * finalScaleFactor);
         }
 
+        DoOverlapCheck(targetRadius);
+
         yield return new WaitForSeconds(holdTime);
+
         DestroySelfNetworkSafe();
+    }
+
+    /// <summary>
+    /// Overlap check by radius that will send RPCs / local calls to PlayerStatus / PlayerHealth as needed.
+    /// Will deduplicate using damagedActorNumbers / damagedInstanceIds.
+    /// IMPORTANT: explicit owner actor check prevents rooting the creator.
+    /// </summary>
+    private void DoOverlapCheck(float radius)
+    {
+        if (radius <= 0f) return;
+
+        Collider[] cols;
+        try
+        {
+            cols = Physics.OverlapSphere(transform.position, radius, ~0, QueryTriggerInteraction.Collide);
+        }
+        catch
+        {
+            cols = new Collider[0];
+        }
+
+        foreach (var other in cols)
+        {
+            if (other == null) continue;
+            if (other.gameObject == gameObject) continue;
+
+            // If we have an ownerActorNumber, skip any PhotonView owned by that actor.
+            var targetPv = other.GetComponentInParent<PhotonView>();
+            if (targetPv != null && targetPv.Owner != null)
+            {
+                if (ownerActorNumber >= 0 && targetPv.Owner.ActorNumber == ownerActorNumber)
+                    continue; // do not affect owner
+
+                var ps = other.GetComponentInParent<PlayerStatus>();
+                if (ps != null)
+                {
+                    int actorNum = targetPv.Owner.ActorNumber;
+                    if (damagedActorNumbers.Contains(actorNum)) continue;
+
+                    try
+                    {
+                        targetPv.RPC("RPC_ApplyRoot", targetPv.Owner, rootDuration, ownerActorNumber);
+                        if (stopHealing) targetPv.RPC("RPC_StopHealing", targetPv.Owner, rootDuration, ownerActorNumber);
+                        Debug.Log($"[ExpandingPulse] RPC_ApplyRoot -> actor {actorNum} duration {rootDuration}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogWarning($"ExpandingPulseBehavior: RPC to actor {actorNum} failed: {ex.Message}. Falling back to local call.");
+                        ps.ApplyRootLocal(rootDuration);
+                        if (stopHealing) ps.StopHealingLocal(rootDuration);
+                    }
+
+                    damagedActorNumbers.Add(actorNum);
+                    continue;
+                }
+            }
+
+            // If no PhotonView owner or no PlayerStatus, still attempt local calls (editor/offline)
+            var localPs = other.GetComponentInParent<PlayerStatus>();
+            if (localPs != null)
+            {
+                int id = localPs.gameObject.GetInstanceID();
+                if (damagedInstanceIds.Contains(id)) continue;
+
+                // if we have an ownerGameObject, double-check it isn't the same GameObject
+                if (ownerGameObject != null && DamageUtils.IsSameOwner(other.gameObject, ownerActorNumber, ownerGameObject))
+                    continue;
+
+                localPs.ApplyRootLocal(rootDuration);
+                if (stopHealing) localPs.StopHealingLocal(rootDuration);
+                damagedInstanceIds.Add(id);
+                continue;
+            }
+
+            // fallback PlayerHealth path (rare)
+            var ph = other.GetComponentInParent<PlayerHealth>();
+            if (ph != null)
+            {
+                int id = ph.gameObject.GetInstanceID();
+                if (damagedInstanceIds.Contains(id)) continue;
+
+                // skip if same ownerGameObject fallback
+                if (ownerGameObject != null && DamageUtils.IsSameOwner(other.gameObject, ownerActorNumber, ownerGameObject))
+                    continue;
+
+                ph.SendMessage("ApplyRoot", rootDuration, SendMessageOptions.DontRequireReceiver);
+                if (stopHealing) ph.SendMessage("StopHealing", rootDuration, SendMessageOptions.DontRequireReceiver);
+                damagedInstanceIds.Add(id);
+                continue;
+            }
+        }
     }
 
     void OnTriggerEnter(Collider other)
     {
         if (other == null) return;
         if (other.gameObject == gameObject) return;
-        if (DamageUtils.IsSameOwner(other.gameObject, ownerActorNumber, ownerGameObject)) return;
 
+        // Check owner identity first (explicit)
         var targetPv = other.GetComponentInParent<PhotonView>();
+        if (targetPv != null && targetPv.Owner != null && ownerActorNumber >= 0 && targetPv.Owner.ActorNumber == ownerActorNumber)
+            return;
+
+        // Use same logic as DoOverlapCheck but scoped
         var ps = other.GetComponentInParent<PlayerStatus>();
         var ph = other.GetComponentInParent<PlayerHealth>();
 
@@ -247,8 +297,7 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
             try
             {
                 targetPv.RPC("RPC_ApplyRoot", targetPv.Owner, rootDuration, ownerActorNumber);
-                if (stopHealing)
-                    targetPv.RPC("RPC_StopHealing", targetPv.Owner, rootDuration, ownerActorNumber);
+                if (stopHealing) targetPv.RPC("RPC_StopHealing", targetPv.Owner, rootDuration, ownerActorNumber);
             }
             catch (Exception ex)
             {
@@ -292,6 +341,7 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
         Destroy(gameObject);
     }
 
+    // local spawner fallback for editor usage
     public void InitializeFromSpawner(int ownerActor, GameObject ownerGO, float radius, float rootDur, bool stopHeal, float expandDur = -1f)
     {
         ownerActorNumber = ownerActor;
@@ -302,22 +352,8 @@ public class ExpandingPulseBehavior : MonoBehaviourPun
         stopHealing = stopHeal;
         if (expandDur > 0f) expandDuration = expandDur;
 
-        // Set initial collider radius depending on visualOnly
         if (visualOnly) sphere.radius = colliderFixedRadius;
         else sphere.radius = 0.01f;
-
-        if (ownerGameObject != null)
-        {
-            ownerColliders = ownerGameObject.GetComponentsInChildren<Collider>(true);
-            if (ownerColliders != null && ownerColliders.Length > 0 && myColliders != null)
-            {
-                foreach (var a in myColliders)
-                    foreach (var b in ownerColliders)
-                        if (a != null && b != null) Physics.IgnoreCollision(a, b, true);
-
-                StartCoroutine(ReenableOwnerCollisionsAfter(0.18f));
-            }
-        }
 
         StopAllCoroutines();
         StartCoroutine(ExpandAndDestroy());

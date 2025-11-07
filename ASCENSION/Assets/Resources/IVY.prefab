@@ -650,7 +650,7 @@ MonoBehaviour:
   gnawingDamage: 50
   gnawingHoundSpeed: 12
   gnawingLifetime: 4
-  darkPropulsionSpeed: 25
+  darkPropulsionSpeed: 50
   darkPropulsionDuration: 0.25
   sporewardDuration: 20
   thornveilDuration: 10
@@ -750,6 +750,7 @@ MonoBehaviour:
   homeostasisCanvasGroup: {fileID: 4266333699119074271}
   homeostasisPulseAlpha: 0.3
   homeostasisPulseStepDuration: 0.25
+  playerMovement: {fileID: 5449171655669973306}
 --- !u!114 &-3057229939523112377
 MonoBehaviour:
   m_ObjectHideFlags: 0

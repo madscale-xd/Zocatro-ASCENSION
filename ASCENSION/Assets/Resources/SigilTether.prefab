@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 1552010567573530893}
   - component: {fileID: -3185678420940885890}
   - component: {fileID: -7615227673624906847}
+  - component: {fileID: 5398587229011015585}
   m_Layer: 0
   m_Name: SigilTether
   m_TagString: Untagged
@@ -180,3 +181,17 @@ MonoBehaviour:
   sceneViewId: 0
   InstantiationId: 0
   isRuntimeInstantiated: 0
+--- !u!114 &5398587229011015585
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8214807413152268108}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f05e0970320adc64fba066c486fee068, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ownerActor: -1
+  ownerGameObject: {fileID: 0}
