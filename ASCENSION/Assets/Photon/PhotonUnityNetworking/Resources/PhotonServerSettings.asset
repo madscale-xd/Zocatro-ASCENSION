@@ -73,6 +73,8 @@ MonoBehaviour:
   - RPC_SetOwnerActor
   - RPC_Heal
   - RPC_BroadcastMaxHealth
+  - RPC_SetLocalUIActive
+  - RPC_ReceiveTriad
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1

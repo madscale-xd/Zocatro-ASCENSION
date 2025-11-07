@@ -179,11 +179,11 @@ public class TarotSelection : MonoBehaviour
         bool applied = false;
         PhotonView myPv = GetComponentInParent<PhotonView>();
 
-        // immediate check first
+        // 1) Try instantiation data immediately (works for owner + remote when Photon provides it)
         if (TryApplyInstData(myPv))
             applied = true;
 
-        // wait loop if not applied
+        // 2) Wait a short window for instantiation data to arrive (defensive)
         if (!applied)
         {
             float deadline = Time.realtimeSinceStartup + INST_DATA_WAIT_SECONDS;
@@ -198,7 +198,27 @@ public class TarotSelection : MonoBehaviour
             }
         }
 
-        // fallback to LocalPlayer custom props then PlayerPrefs (owner only)
+        // 3) If still not applied, attempt to read the OWNER's custom props (important for remote instances)
+        //    We also allow a short wait so owner/client props have a chance to be set by lobby logic.
+        if (!applied && myPv != null && myPv.Owner != null)
+        {
+            float ownerPropDeadline = Time.realtimeSinceStartup + INST_DATA_WAIT_SECONDS;
+            while (Time.realtimeSinceStartup <= ownerPropDeadline)
+            {
+                var ownerProps = myPv.Owner.CustomProperties;
+                if (ownerProps != null && ownerProps.TryGetValue(PhotonKeys.PROP_TRIAD, out object objTriadOwner))
+                {
+                    ParseTriadObject(objTriadOwner, out int a, out int b, out int c);
+                    ApplyTriadFromIndices(new int[] { a, b, c });
+                    applied = true;
+                    Debug.Log($"[TarotSelection] Applied triad from owner ({myPv.Owner.ActorNumber}) custom props: ({a},{b},{c})");
+                    break;
+                }
+                yield return null;
+            }
+        }
+
+        // 4) Fallback for owner instance only: LocalPlayer custom props then PlayerPrefs (existing behavior)
         if (!applied && isOwnerInstance)
         {
             if (PhotonNetwork.IsConnected && PhotonNetwork.LocalPlayer != null &&
@@ -226,6 +246,7 @@ public class TarotSelection : MonoBehaviour
             }
         }
 
+        // 5) Still nothing? Generate a private triad (existing behavior)
         if (!applied)
         {
             GenerateTriad();
@@ -235,6 +256,7 @@ public class TarotSelection : MonoBehaviour
         UpdateTriadImages();
         yield break;
     }
+
 
     // try to read PV.InstantiationData and apply; returns true if data was valid/applied
     private bool TryApplyInstData(PhotonView myPv)

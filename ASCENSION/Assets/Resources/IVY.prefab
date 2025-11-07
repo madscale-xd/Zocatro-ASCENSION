@@ -195,6 +195,7 @@ GameObject:
   - component: {fileID: 4417420245621891631}
   - component: {fileID: 1029051020830529080}
   - component: {fileID: -3057229939523112377}
+  - component: {fileID: 4640247734955724475}
   m_Layer: 0
   m_Name: IVY
   m_TagString: Player
@@ -763,6 +764,23 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   componentsToDisableWhileLocked: []
   insideOffsetY: 0.15
+--- !u!114 &4640247734955724475
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 146960453718510139}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d4d3cd990a455e14cb83b58c438a5887, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  uiRoots:
+  - {fileID: 7534310470223489919}
+  autoFindByName: 1
+  autoFindCanvases: 1
+  applyAtStart: 1
 --- !u!1 &277920470445728667
 GameObject:
   m_ObjectHideFlags: 0
@@ -2882,7 +2900,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1327075000982260750
 RectTransform:
   m_ObjectHideFlags: 0
