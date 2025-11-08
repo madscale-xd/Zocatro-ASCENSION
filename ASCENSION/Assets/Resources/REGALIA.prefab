@@ -113,6 +113,7 @@ GameObject:
   - component: {fileID: 1029051020830529080}
   - component: {fileID: -3057229939523112377}
   - component: {fileID: -2082948313220086942}
+  - component: {fileID: 5506008452510169009}
   m_Layer: 0
   m_Name: REGALIA
   m_TagString: Player
@@ -652,6 +653,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   actorNumber: -1
+  tarotSelection: {fileID: 0}
 --- !u!114 &1029051020830529080
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -700,6 +702,21 @@ MonoBehaviour:
   autoFindByName: 1
   autoFindCanvases: 1
   applyAtStart: 1
+--- !u!114 &5506008452510169009
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 146960453718510139}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bae3fbb4a110eb64a8cc43886486cdf2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  checkInterval: 0.25
+  winSceneName: WinScene
+  requireLocalAlive: 1
 --- !u!1 &277920470445728667
 GameObject:
   m_ObjectHideFlags: 0

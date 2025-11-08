@@ -14,6 +14,14 @@ public class MainMenu : MonoBehaviour
         // Assign button listeners
         startButton.onClick.AddListener(StartGame);
         exitButton.onClick.AddListener(ExitGame);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+    
+    private void Update()
+    {
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     void StartGame()

@@ -1,4 +1,4 @@
-// PlayerHealth.cs
+using System;
 using UnityEngine;
 using UnityEngine.Events;
 using TMPro;
@@ -7,16 +7,15 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// PlayerHealth: handles local authoritative damage, HUD updates, and (on death) triggers a safe leave-to-lobby flow.
-/// Integrated with AscensionParticipant to enforce ascension PvP rules: players cannot damage each other unless both are ascendees
-/// in the same active rite (ascension zone).
+/// Adds a static OnAnyPlayerDied event so other systems can react to deaths reliably across network spawn timing.
 /// </summary>
 public class PlayerHealth : MonoBehaviourPun
 {
     [Header("HP")]
     [Tooltip("Maximum health. Default 150.")]
     public int maxHealth = 150;
-    private int originalMaxHealth = -1;
 
+    private int originalMaxHealth = -1;
     private int currentHealth;
 
     [Header("Body parts (assign Colliders)")]
@@ -31,12 +30,9 @@ public class PlayerHealth : MonoBehaviourPun
     public UnityEvent onDeath;
 
     [Header("UI (optional)")]
-    [Tooltip("Optional TextMeshPro element to display current HP (accepts TextMeshProUGUI or TextMeshPro).")]
     public TMP_Text hpText;
-
     [Tooltip("If true, HP text will be hidden on non-owned instances (recommended for screen HUDs).")]
     public bool hideOnRemoteInstances = true;
-
     [Tooltip("If true, HP text will be hidden on death.")]
     public bool hideOnDeath = false;
 
@@ -44,9 +40,12 @@ public class PlayerHealth : MonoBehaviourPun
     [Tooltip("Name of the scene to load after leaving the room. Make sure this scene is added to Build Settings.")]
     public string lobbySceneName = "LobbyScene";
 
-    // Optional delay before initiating leave (useful to play death animation/sound)
     [Tooltip("Optional delay (seconds) before leaving the room on death.")]
     public float leaveDelaySeconds = 0.5f;
+
+    // --- NEW: global static event raised on every client when any player dies ---
+    // Parameter: actorNumber of the player who died (may be -1 if unknown)
+    public static event Action<int> OnAnyPlayerDied;
 
     void Awake()
     {
@@ -68,18 +67,14 @@ public class PlayerHealth : MonoBehaviourPun
 
     /// <summary>
     /// Apply damage to this player (local call on the owner).
-    /// This is the place to hook incoming-side modifiers or effects (like Lovers linking).
     /// </summary>
-    /// <param name="amount">Damage amount (already adjusted for headshot, if any).</param>
-    /// <param name="isHeadHit">True when this damage was from the head collider.</param>
     public void TakeDamage(int amount, bool isHeadHit = false)
     {
         ApplyDamage(amount, isHeadHit);
     }
 
     /// <summary>
-    /// Centralized damage application - good place to add incoming-side modifiers (e.g. Lovers, Devil, etc).
-    /// Currently simply subtracts HP, clamps, and invokes events.
+    /// Centralized damage application - owner executes this locally.
     /// </summary>
     public void ApplyDamage(int amount, bool isHeadHit = false)
     {
@@ -105,10 +100,9 @@ public class PlayerHealth : MonoBehaviourPun
         if (currentHealth <= 0)
             Die();
     }
-    
+
     /// <summary>
-    /// Centralized heal application on the owner client.
-    /// Updates currentHealth, clamps, invokes onHeal, and broadcasts to remote clients.
+    /// Apply a heal on the owner.
     /// </summary>
     public void ApplyHeal(int amount)
     {
@@ -122,10 +116,8 @@ public class PlayerHealth : MonoBehaviourPun
 
         UpdateHpText();
 
-        // optional event
         onHeal?.Invoke();
 
-        // If owner, broadcast updated HP to others
         if (photonView != null && photonView.IsMine)
         {
             try
@@ -134,9 +126,6 @@ public class PlayerHealth : MonoBehaviourPun
             }
             catch { /* ignore network issues */ }
         }
-
-        // NOTE: if you want revives to trigger behavior, detect prevHealth <= 0 && currentHealth > 0 here
-        // and invoke a revive event or run revive logic.
     }
 
     public int GetCurrentHealth() => currentHealth;
@@ -150,17 +139,19 @@ public class PlayerHealth : MonoBehaviourPun
         if (hideOnDeath && hpText != null)
             hpText.gameObject.SetActive(false);
 
-        // Start the leave-to-lobby flow only on the owning client (owner is authoritative for its own death)
+        // raise static event on this client to notify global listeners
+        int actor = GetActorNumberForThisInstance();
+        try { OnAnyPlayerDied?.Invoke(actor); } catch { }
+
+        // Owner-specific cleanup / leave flow
         if (photonView != null && photonView.IsMine)
         {
-            // Inform AscensionParticipant (if present) about local death so it can report to master
             var participant = GetComponent<AscensionParticipant>();
             if (participant != null)
             {
                 participant.OnLocalDeath();
             }
 
-            // Optionally wait a frame or a short delay for death animation/sfx
             if (leaveDelaySeconds > 0f)
                 Invoke(nameof(StartLeaveRoomFlow), leaveDelaySeconds);
             else
@@ -172,7 +163,6 @@ public class PlayerHealth : MonoBehaviourPun
 
     private void StartLeaveRoomFlow()
     {
-        // If already in a leave flow, do nothing
         if (LeaveRoomHandler.Exists)
         {
             Debug.Log("[PlayerHealth] LeaveRoomHandler already exists — invoking Leave now.");
@@ -180,7 +170,6 @@ public class PlayerHealth : MonoBehaviourPun
             return;
         }
 
-        // Create a persistent handler that survives scene loads and will handle Photon callbacks reliably.
         GameObject go = new GameObject("LeaveRoomHandler");
         var handler = go.AddComponent<LeaveRoomHandler>();
         DontDestroyOnLoad(go);
@@ -197,18 +186,14 @@ public class PlayerHealth : MonoBehaviourPun
 
     /// <summary>
     /// RPC invoked on the owner of this PlayerHealth to apply damage authoritatively.
-    /// We target this RPC to the player who owns this PhotonView.
-    /// Attacker must call the target's RPC with attackerActorNumber = PhotonNetwork.LocalPlayer.ActorNumber.
     /// </summary>
     [PunRPC]
     public void RPC_TakeDamage(int amount, bool isHead, int attackerActorNumber)
     {
-        // Only the owner should execute damage locally.
         if (photonView != null && !photonView.IsMine) return;
 
         Debug.Log($"[PlayerHealth] RPC_TakeDamage received on actor {PhotonNetwork.LocalPlayer?.ActorNumber ?? -1}: amount={amount}, isHead={isHead}, attacker={attackerActorNumber}");
 
-        // Enforce ascension rules: if an AscensionParticipant exists, consult it. Otherwise, disallow PvP by default.
         var participant = GetComponent<AscensionParticipant>();
         if (participant != null)
         {
@@ -221,7 +206,6 @@ public class PlayerHealth : MonoBehaviourPun
         }
         else
         {
-            // If the player prefab does not include AscensionParticipant, treat as not in rite => disallow PvP.
             Debug.LogWarning("[PlayerHealth] No AscensionParticipant on player - ignoring PvP damage by default.");
             return;
         }
@@ -231,24 +215,20 @@ public class PlayerHealth : MonoBehaviourPun
 
     /// <summary>
     /// RPC invoked on the owner of this PlayerHealth to apply healing authoritatively.
-    /// Other clients should call: targetPv.RPC("RPC_Heal", targetPv.Owner, amount, PhotonNetwork.LocalPlayer.ActorNumber);
     /// </summary>
     [PunRPC]
     public void RPC_Heal(int amount, int healerActorNumber)
     {
-        // Only the owner should execute healing locally.
         if (photonView != null && !photonView.IsMine) return;
 
         Debug.Log($"[PlayerHealth] RPC_Heal received on actor {PhotonNetwork.LocalPlayer?.ActorNumber ?? -1}: amount={amount}, healer={healerActorNumber}");
 
-        // If you have AscensionParticipant rules and want to restrict who may heal whom, check here:
-        // var participant = GetComponent<AscensionParticipant>();
-        // if (participant != null && !participant.CanBeHealedBy(healerActorNumber)) { Debug.Log("Heal denied by ascension rules."); return; }
-
         ApplyHeal(amount);
     }
 
-    // Sent by the owner to all other clients so they can update remote nameplates/HUDs for this player.
+    /// <summary>
+    /// Called on remote clients to update health display. Also raises onDeath / static events if health is <= 0.
+    /// </summary>
     [PunRPC]
     public void RPC_BroadcastHealth(int newHealth)
     {
@@ -260,23 +240,24 @@ public class PlayerHealth : MonoBehaviourPun
         UpdateHpText();
 
         if (currentHealth <= 0)
+        {
             onDeath?.Invoke();
+
+            // Raise static event on this client for the owner's death
+            int actor = GetActorNumberForThisInstance();
+            try { OnAnyPlayerDied?.Invoke(actor); } catch { }
+        }
     }
-
-
 
     /// <summary>
     /// Called by local code (owner) to request taking damage from attackerActorNumber.
-    /// This enforces AscensionParticipant rules the same way RPC_TakeDamage does.
-    /// Use for self-damage or any local application of incoming damage.
+    /// Same ascension checks as RPC_TakeDamage.
     /// </summary>
     public void RequestTakeDamageFrom(int attackerActorNumber, int amount, bool isHead = false)
     {
-        // Only owner executes local damage application
         if (photonView != null && !photonView.IsMine)
             return;
 
-        // Enforce ascension rules (same check as RPC_TakeDamage)
         var participant = GetComponent<AscensionParticipant>();
         if (participant != null)
         {
@@ -288,7 +269,6 @@ public class PlayerHealth : MonoBehaviourPun
         }
         else
         {
-            // If no AscensionParticipant on the target, you treat PvP as disallowed by default.
             Debug.LogWarning("[PlayerHealth] No AscensionParticipant - ignoring PvP by default.");
             return;
         }
@@ -296,28 +276,15 @@ public class PlayerHealth : MonoBehaviourPun
         ApplyDamage(amount, isHead);
     }
 
-    /// <summary>
-    /// Called by local code (owner) to request a heal from a healer actor.
-    /// This mirrors RequestTakeDamageFrom: only the owner executes local heals.
-    /// </summary>
     public void RequestHealFrom(int healerActorNumber, int amount)
     {
-        // Only owner can apply heal locally
         if (photonView != null && !photonView.IsMine)
             return;
-
-        // If you want Ascension rules to affect healing, consult AscensionParticipant here.
-        // Example: var participant = GetComponent<AscensionParticipant>(); if (participant != null) { ... }
 
         ApplyHeal(amount);
     }
 
-    // ------------------ Add these methods near other RPCs / methods ------------------
-    /// <summary>
-    /// Apply a permanent strength-style boost to max HP and heal to full.
-    /// healthMultiplier: e.g. 3 => triple max health.
-    /// This runs on the owner (call from owner instance) and broadcasts the new values to remotes.
-    /// </summary>
+    // Strength boost methods omitted for brevity - keep your existing ones if needed
     public void ApplyStrengthBoost(float healthMultiplier)
     {
         if (originalMaxHealth <= 0) originalMaxHealth = maxHealth;
@@ -325,13 +292,11 @@ public class PlayerHealth : MonoBehaviourPun
         int newMax = Mathf.Max(1, Mathf.RoundToInt(originalMaxHealth * healthMultiplier));
         maxHealth = newMax;
 
-        // restore/heal to full
         currentHealth = maxHealth;
         UpdateHpText();
 
         Debug.Log($"[PlayerHealth] Strength applied. newMax={maxHealth}, current={currentHealth}");
 
-        // Broadcast the new max and current HP to remote clients so their UI keeps in sync.
         if (photonView != null && photonView.IsMine)
         {
             try
@@ -342,26 +307,34 @@ public class PlayerHealth : MonoBehaviourPun
             catch { /* ignore network issues */ }
         }
     }
-    
-    /// <summary>
-    /// RPC used by owner to tell other clients what the new maxHealth should be.
-    /// </summary>
+
     [PunRPC]
     public void RPC_BroadcastMaxHealth(int newMax)
     {
-        // Only remote instances should update (owner already applied)
         if (photonView != null && photonView.IsMine) return;
-
         maxHealth = Mathf.Max(1, newMax);
-
-        // Clamp currentHealth if necessary and update UI.
         currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
         UpdateHpText();
-
         Debug.Log($"[PlayerHealth] RPC_BroadcastMaxHealth received. newMax={newMax}");
     }
-}
 
+    // Helper to get an actor number representing this PlayerHealth instance
+    private int GetActorNumberForThisInstance()
+    {
+        int actor = -1;
+        if (photonView != null && photonView.Owner != null)
+            actor = photonView.Owner.ActorNumber;
+
+        // fallback to PlayerIdentity if present
+        if (actor < 0)
+        {
+            var pid = GetComponent<PlayerIdentity>() ?? GetComponentInParent<PlayerIdentity>();
+            if (pid != null && pid.actorNumber > 0) actor = pid.actorNumber;
+        }
+
+        return actor;
+    }
+}
 
 /// <summary>
 /// LeaveRoomHandler: persistent helper that calls PhotonNetwork.LeaveRoom() and loads the lobby scene when leaving completes.

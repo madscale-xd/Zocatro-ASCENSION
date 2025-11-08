@@ -3080,16 +3080,28 @@ PrefabInstance:
       value: AscensionZone
       objectReference: {fileID: 0}
     - target: {fileID: 5005515514204675268, guid: e955595bb5b9ef142bcaf2557c3b892f, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 63.846615
+      objectReference: {fileID: 0}
+    - target: {fileID: 5005515514204675268, guid: e955595bb5b9ef142bcaf2557c3b892f, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 16.42142
+      objectReference: {fileID: 0}
+    - target: {fileID: 5005515514204675268, guid: e955595bb5b9ef142bcaf2557c3b892f, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 63.846615
+      objectReference: {fileID: 0}
+    - target: {fileID: 5005515514204675268, guid: e955595bb5b9ef142bcaf2557c3b892f, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -5.8670063
+      value: -1.3
       objectReference: {fileID: 0}
     - target: {fileID: 5005515514204675268, guid: e955595bb5b9ef142bcaf2557c3b892f, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -3.8069515
+      value: 0.25099
       objectReference: {fileID: 0}
     - target: {fileID: 5005515514204675268, guid: e955595bb5b9ef142bcaf2557c3b892f, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -18.419216
+      value: -10.8
       objectReference: {fileID: 0}
     - target: {fileID: 5005515514204675268, guid: e955595bb5b9ef142bcaf2557c3b892f, type: 3}
       propertyPath: m_LocalRotation.w

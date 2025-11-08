@@ -113,6 +113,7 @@ GameObject:
   - component: {fileID: 1029051020830529080}
   - component: {fileID: -3057229939523112377}
   - component: {fileID: -614184227468864410}
+  - component: {fileID: 6706446802756880712}
   m_Layer: 0
   m_Name: MAYHEM
   m_TagString: Player
@@ -701,6 +702,20 @@ MonoBehaviour:
   autoFindByName: 1
   autoFindCanvases: 1
   applyAtStart: 1
+--- !u!114 &6706446802756880712
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 146960453718510139}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bae3fbb4a110eb64a8cc43886486cdf2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  winSceneName: WinScene
+  requireLocalAlive: 1
 --- !u!1 &277920470445728667
 GameObject:
   m_ObjectHideFlags: 0
