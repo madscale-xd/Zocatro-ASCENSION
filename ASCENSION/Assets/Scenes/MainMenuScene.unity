@@ -489,6 +489,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   startButton: {fileID: 1737018837}
   exitButton: {fileID: 1169816621}
+  bgmClip: {fileID: 8300000, guid: 3ce79e969c727d447999705f0d0cbd48, type: 3}
 --- !u!4 &653775152
 Transform:
   m_ObjectHideFlags: 0
@@ -499,6 +500,105 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 350, y: 257, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &703524146
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 703524148}
+  - component: {fileID: 703524147}
+  m_Layer: 0
+  m_Name: AudioManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &703524147
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 703524146}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1cd6df79d243c4148b01c009e4dcfb33, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  sounds:
+  - name: Mayhem_Skill1
+    clip: {fileID: 8300000, guid: 37f813ce908a8634b81068756503e4c8, type: 3}
+    volume: 0.7
+    pitch: 0
+    loop: 0
+    source: {fileID: 0}
+  - name: Mayhem_Skill2
+    clip: {fileID: 8300000, guid: c84a629b64bdbd244961e9a641b512a1, type: 3}
+    volume: 0.7
+    pitch: 0.1
+    loop: 0
+    source: {fileID: 0}
+  - name: Sigil_Skill1
+    clip: {fileID: 8300000, guid: 3ddbaa53b862f2f4386615a9b3b33378, type: 3}
+    volume: 0.7
+    pitch: 0
+    loop: 0
+    source: {fileID: 0}
+  - name: Sigil_Skill2
+    clip: {fileID: 8300000, guid: d0bfd8c1eff16964794362928817efe0, type: 3}
+    volume: 0.7
+    pitch: 0
+    loop: 0
+    source: {fileID: 0}
+  - name: Ivy_Skill1
+    clip: {fileID: 8300000, guid: df8952cf0e4d1ab41b2835d65804aaf4, type: 3}
+    volume: 0.7
+    pitch: 0
+    loop: 0
+    source: {fileID: 0}
+  - name: Ivy_Skill2
+    clip: {fileID: 8300000, guid: 316e3e778458dbf4db2b329549399ea4, type: 3}
+    volume: 0
+    pitch: 0
+    loop: 0
+    source: {fileID: 0}
+  - name: Regalia_Skill1
+    clip: {fileID: 8300000, guid: aa1677ff28b5c1646859897da3cfe48c, type: 3}
+    volume: 0.7
+    pitch: 0
+    loop: 0
+    source: {fileID: 0}
+  - name: Regalia_Skill2
+    clip: {fileID: 8300000, guid: b86f49419bbf4c447a3637d8ee4295a0, type: 3}
+    volume: 0.7
+    pitch: 0
+    loop: 0
+    source: {fileID: 0}
+  - name: BGM
+    clip: {fileID: 8300000, guid: 3ce79e969c727d447999705f0d0cbd48, type: 3}
+    volume: 1
+    pitch: 0
+    loop: 1
+    source: {fileID: 0}
+--- !u!4 &703524148
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 703524146}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 364.84735, y: 199.78615, z: 56.622124}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1386,6 +1486,7 @@ SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
   - {fileID: 2038784139}
+  - {fileID: 703524148}
   - {fileID: 1533802980}
   - {fileID: 653775152}
   - {fileID: 1686574752}
