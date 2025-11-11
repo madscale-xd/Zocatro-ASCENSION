@@ -80,6 +80,7 @@ namespace Com.MyCompany.MyGame
         // ONLY room logic; never touches player name.
         public void CreateRoomFromInput()
         {
+            AudioManager.Instance.PlayButtonPress();
             Debug.Log(">>> CreateRoomFromInput CALLED");
 
             // Force InputField to commit edits by clearing selection (safe if EventSystem exists)

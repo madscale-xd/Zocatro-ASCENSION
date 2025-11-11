@@ -127,6 +127,7 @@ public class SimpleShooter_PhotonSafe : MonoBehaviour
 
     void Fire()
     {
+        AudioManager.Instance.PlayshootSFX();
         if (bulletPrefab == null)
         {
             Debug.LogWarning("[SimpleShooter] bulletPrefab missing.");

@@ -75,6 +75,7 @@ MonoBehaviour:
   - RPC_BroadcastMaxHealth
   - RPC_SetLocalUIActive
   - RPC_ReceiveTriad
+  - RPC_PlaySFX
   DisableAutoOpenWizard: 1
   ShowSettings: 1
   DevRegionSetOnce: 1

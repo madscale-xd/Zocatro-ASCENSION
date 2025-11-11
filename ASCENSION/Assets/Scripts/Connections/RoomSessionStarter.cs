@@ -104,6 +104,7 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
     // ---------------------------
     void OnStartClicked()
     {
+        AudioManager.Instance.PlayButtonPress();
         if (!PhotonNetwork.IsMasterClient) return;
 
         StartCountdown(10f); // Host starts 10s countdown
@@ -115,12 +116,14 @@ public class CompactRoomSessionStarter : MonoBehaviourPunCallbacks
 
     public void OnCancelClicked()
     {
+        AudioManager.Instance.PlayButtonPress();
         if (!PhotonNetwork.InRoom) return;
         photonView.RPC(nameof(RPC_CancelCountdown), RpcTarget.All);
     }
 
     public void OnSetNameClicked()
     {
+        AudioManager.Instance.PlayButtonPress();
         if (playerNameInput == null) return;
 
         string newName = playerNameInput.text.Trim();

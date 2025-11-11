@@ -1,75 +1,200 @@
 using UnityEngine;
-using System;
+using UnityEngine.SceneManagement;
+using Photon.Pun;
 
 public class AudioManager : MonoBehaviour
 {
     public static AudioManager Instance;
 
-    [Serializable]
-    public class Sound
+    [Header("Audio Sources")]
+    public AudioSource bgmSource;
+    public AudioSource sfxSource;
+
+    [Header("Audio Clips")]
+    public AudioClip menuBGM;
+    public AudioClip buttonPressSFX;
+
+    [Header("Skill SFX")]
+    public AudioClip mayhemSkill1SFX;
+    public AudioClip mayhemSkill2SFX;
+    public AudioClip ivySkill1SFX;
+    public AudioClip ivySkill2SFX;
+    public AudioClip regaliaSkill1SFX;
+    public AudioClip regaliaSkill2SFX;
+    public AudioClip sigilSkill1SFX;
+    public AudioClip sigilSkill2SFX;
+    public AudioClip shootSFX;
+
+    private float masterVolume = 1f;
+    private float bgmVolume = 0.2f;
+    private float sfxVolume = 1f;
+
+    private void Awake()
     {
-        public string name;
-        public AudioClip clip;
-        [Range(0f, 1f)] public float volume = 1f;
-        [Range(0.1f, 3f)] public float pitch = 1f;
-        public bool loop;
-
-        [HideInInspector] public AudioSource source;
-    }
-
-    public Sound[] sounds;
-
-    void Awake()
-    {
-        // Singleton pattern
         if (Instance == null)
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
         }
-        else
+        else Destroy(gameObject);
+    }
+
+    private void Start()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+        PlayBGM(menuBGM);
+    }
+
+    private void OnDestroy()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        // Stop BGM when SessionScene loads
+        if (scene.name == "SessionScene")
+            StopBGM();
+    }
+
+    public void PlayBGM(AudioClip clip)
+    {
+        if (bgmSource.clip == clip && bgmSource.isPlaying) return;
+
+        bgmSource.clip = clip;
+        bgmSource.loop = true;
+        bgmSource.volume = bgmVolume * masterVolume;
+        bgmSource.Play();
+    }
+
+    public void StopBGM()
+    {
+        if (bgmSource.isPlaying)
+            bgmSource.Stop();
+    }
+
+    public void PlaySFX(AudioClip clip)
+    {
+        sfxSource.PlayOneShot(clip, sfxVolume * masterVolume);
+    }
+
+    // --- General SFX ---
+    public void PlayButtonPress()
+    {
+        PlaySFX(buttonPressSFX);
+    }
+
+    // --- Mayhem Skills ---
+    public void PlayMayhemSkill1()
+    {
+        PlaySFX(mayhemSkill1SFX);
+    }
+
+    public void PlayMayhemSkill2()
+    {
+        PlaySFX(mayhemSkill2SFX);
+    }
+
+    // --- Ivy Skills ---
+    public void PlayIvySkill1()
+    {
+        PlaySFX(ivySkill1SFX);
+    }
+
+    public void PlayIvySkill2()
+    {
+        PlaySFX(ivySkill2SFX);
+    }
+
+    // --- Regalia Skills ---
+    public void PlayRegaliaSkill1()
+    {
+        PlaySFX(regaliaSkill1SFX);
+    }
+
+    public void PlayRegaliaSkill2()
+    {
+        PlaySFX(regaliaSkill2SFX);
+    }
+
+    // --- Sigil Skills ---
+    public void PlaySigilSkill1()
+    {
+        PlaySFX(sigilSkill1SFX);
+    }
+
+    public void PlaySigilSkill2()
+    {
+        PlaySFX(sigilSkill2SFX);
+    }
+
+     public void PlayshootSFX()
+    {
+        PlaySFX(shootSFX);
+    }
+
+    // --- Volume Control ---
+    public void SetMasterVolume(float value)
+    {
+        masterVolume = value;
+        UpdateVolumes();
+    }
+
+    public void SetBGMVolume(float value)
+    {
+        bgmVolume = value;
+        UpdateVolumes();
+    }
+
+    public void SetSFXVolume(float value)
+    {
+        sfxVolume = value;
+        UpdateVolumes();
+    }
+
+    private void UpdateVolumes()
+    {
+        bgmSource.volume = bgmVolume * masterVolume;
+        sfxSource.volume = sfxVolume * masterVolume;
+    }
+
+    [PunRPC]
+    public void RPC_PlaySFX(string clipName)
+    {
+        AudioClip clip = GetClipByName(clipName);
+        if (clip != null)
+            PlaySFX(clip);
+    }
+
+    private AudioClip GetClipByName(string name)
+    {
+        switch (name)
         {
-            Destroy(gameObject);
-            return;
+            // --- Mayhem ---
+            case "MayhemSkill1": return mayhemSkill1SFX;
+            case "MayhemSkill2": return mayhemSkill2SFX;
+
+            // --- Ivy ---
+            case "IvySkill1": return ivySkill1SFX;
+            case "IvySkill2": return ivySkill2SFX;
+
+            // --- Regalia ---
+            case "RegaliaSkill1": return regaliaSkill1SFX;
+            case "RegaliaSkill2": return regaliaSkill2SFX;
+
+            // --- Sigil ---
+            case "SigilSkill1": return sigilSkill1SFX;
+            case "SigilSkill2": return sigilSkill2SFX;
+
+            default: return null;
         }
-
-        // Add AudioSources for each sound
-        foreach (Sound s in sounds)
-        {
-            s.source = gameObject.AddComponent<AudioSource>();
-            s.source.clip = s.clip;
-            s.source.volume = s.volume;
-            s.source.pitch = s.pitch;
-            s.source.loop = s.loop;
-            s.source.spatialBlend = 0f; // makes the sound fully 2D
-
-        }
     }
 
-    public void Play(string name)
-{
-    Sound s = Array.Find(sounds, sound => sound.name == name);
-    if (s == null)
+    public void PlayNetworkedSFX(string clipName)
     {
-        Debug.LogWarning($"Sound '{name}' not found!");
-        return;
+        AudioClip clip = GetClipByName(clipName);
+        if (clip != null)
+            PlaySFX(clip);
     }
-
-    if (s.clip == null)
-    {
-        Debug.LogError($"Sound '{name}' has no clip assigned!");
-        return;
-    }
-
-    Debug.Log($"Playing sound: {s.name} | Volume: {s.source.volume} | Loop: {s.source.loop}");
-    s.source.Play();
-}
-
-
-    public void Stop(string name)
-    {
-        Sound s = Array.Find(sounds, sound => sound.name == name);
-        if (s == null) return;
-        s.source.Stop();
-    }
+    
 }

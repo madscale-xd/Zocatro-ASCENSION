@@ -44,6 +44,7 @@ public class RoomManager : MonoBehaviourPunCallbacks
 
     private void OnLeaveClicked()
     {
+        AudioManager.Instance.PlayButtonPress();
         Debug.Log($"RoomManager: Leave button clicked. InRoom={PhotonNetwork.InRoom}, IsConnected={PhotonNetwork.IsConnected}, InLobby={PhotonNetwork.InLobby}");
 
         // Prevent double clicks

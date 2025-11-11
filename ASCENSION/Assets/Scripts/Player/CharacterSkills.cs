@@ -361,6 +361,12 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     }
     #endregion
 
+    [PunRPC]
+    private void RPC_PlaySFX(string clipName)
+    {
+        AudioManager.Instance.PlayNetworkedSFX(clipName);
+    }
+
     #region Abilities Implementation (owner-only runtime behaviour)
     // NOTE: All spawning is done via SpawnPrefab() which uses Photon when in-room.
     // Damage/status application uses SendMessage so adapt to your project's API (TakeDamage, Heal, ApplyRoot, etc).
@@ -368,7 +374,10 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     // -------- MAYHEM --------
     private void Ability_Mayhem_GnawingDread()
     {
-        AudioManager.Instance.Play("Mayhem_Skill1"); 
+        if (PhotonNetwork.InRoom)
+            photonView.RPC("RPC_PlaySFX", RpcTarget.All, "MayhemSkill1");
+        else
+            AudioManager.Instance.PlayNetworkedSFX("MayhemSkill1");
         Vector3 spawnPos = GetAbilitySpawnOrigin();
         Quaternion rot = Quaternion.LookRotation(GetAimDirection(spawnPos));
 
@@ -411,7 +420,11 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
 
     private void Ability_Mayhem_DarkPropulsion()
     {
-        AudioManager.Instance.Play("Mayhem_Skill2"); 
+        if (PhotonNetwork.InRoom)
+            photonView.RPC("RPC_PlaySFX", RpcTarget.All, "MayhemSkill2");
+        else
+            AudioManager.Instance.PlayNetworkedSFX("MayhemSkill2");
+
         // short invulnerable dash/charge forward (owner only). We'll move the transform forward for a brief moment.
         StartCoroutine(DashForwardCoroutine(darkPropulsionDuration, darkPropulsionSpeed, spawnPuff: true));
     }
@@ -420,7 +433,11 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     // Returns true on successful placement & spawn, false if validation/aim failed.
     private bool Ability_Ivy_Sporeward()
     {
-        AudioManager.Instance.Play("Ivy_Skill1"); 
+        if (PhotonNetwork.InRoom)
+            photonView.RPC("RPC_PlaySFX", RpcTarget.All, "IvySkill1");
+        else
+            AudioManager.Instance.PlayNetworkedSFX("IvySkill1"); 
+
         // prefer a camera ray; fallback to forward from player
         Ray center = (GetCameraOrDefault())?.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f)) ?? new Ray(transform.position, transform.forward);
 
@@ -489,7 +506,11 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     // Returns true on successful placement & spawn, false if validation/aim failed.
     private bool Ability_Ivy_Thornveil()
     {
-        AudioManager.Instance.Play("Ivy_Skill2"); 
+        if (PhotonNetwork.InRoom)
+            photonView.RPC("RPC_PlaySFX", RpcTarget.All, "IvySkill2");
+        else
+            AudioManager.Instance.PlayNetworkedSFX("IvySkill2");
+
         // center ray from camera; fallback to player forward
         Ray center = (GetCameraOrDefault())?.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f)) ?? new Ray(transform.position, transform.forward);
 
@@ -566,7 +587,11 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
     // DownwardDecree now returns bool: true if beacon was placed (valid ground), false if invalid aim
     private bool Ability_Regalia_DownwardDecree()
     {
-        AudioManager.Instance.Play("Regalia_Skill1"); 
+        if (PhotonNetwork.InRoom)
+            photonView.RPC("RPC_PlaySFX", RpcTarget.All, "RegaliaSkill1");
+        else
+            AudioManager.Instance.PlayNetworkedSFX("RegaliaSkill1");
+        
         // center ray from camera; fallback to player forward
         Ray center = (GetCameraOrDefault())?.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f)) ?? new Ray(transform.position, transform.forward);
 
@@ -631,7 +656,11 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
 
     private void Ability_Regalia_RoyalBrigand()
     {
-        AudioManager.Instance.Play("Regalia_Skill2"); 
+        if (PhotonNetwork.InRoom)
+            photonView.RPC("RPC_PlaySFX", RpcTarget.All, "RegaliaSkill2");
+        else
+            AudioManager.Instance.PlayNetworkedSFX("RegaliaSkill2");
+
         // Summon a guard in front of the player that blocks enemy fire.
         Vector3 spawn = transform.position + transform.forward * 3f + Vector3.up * 0.25f;
         Quaternion rot = Quaternion.LookRotation(transform.forward);
@@ -661,7 +690,12 @@ public class CharacterSkills : MonoBehaviourPunCallbacks, IPunObservable
 // CharacterSkills: SIGIL Q - simplified spawn: only pass owner actor (no radius/expand overrides)
 private bool Ability_Sigil_TetheringPulse()
 {
-    AudioManager.Instance.Play("Sigil_Skill1"); 
+    
+    if (PhotonNetwork.InRoom)
+        photonView.RPC("RPC_PlaySFX", RpcTarget.All, "SigilSkill1");
+    else
+        AudioManager.Instance.PlayNetworkedSFX("SigilSkill1");
+        
     // Only the owner runs this input (CharacterSkills owner check exists), so safe to spawn
     int ownerActor = (PhotonNetwork.InRoom && PhotonNetwork.LocalPlayer != null)
         ? PhotonNetwork.LocalPlayer.ActorNumber
@@ -694,7 +728,11 @@ private bool Ability_Sigil_TetheringPulse()
     // --- HOMEOSTASIS (E) ---
     private bool Ability_Sigil_Homeostasis()
     {
-        AudioManager.Instance.Play("Sigil_Skill2"); 
+        if (PhotonNetwork.InRoom)
+            photonView.RPC("RPC_PlaySFX", RpcTarget.All, "SigilSkill2");
+        else
+            AudioManager.Instance.PlayNetworkedSFX("SigilSkill2");
+        
         // Homeostasis is owner-only effect (it affects only the caster's shield/HP/invuln).
         // CharacterSkills only runs for the owner, so we call the player's PlayerStatus to apply this.
         var status = GetComponentInChildren<PlayerStatus>(true) ?? GetComponent<PlayerStatus>();
